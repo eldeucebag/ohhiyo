@@ -1,0 +1,107 @@
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/obj/local/arm64-v8a/objs-debug/freetype/./src/lzw/ftlzw.o: \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/./src/lzw/ftlzw.c \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftmemory.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/ft2build.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftheader.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftconfig.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftoption.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftstdlib.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/integer-types.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/public-macros.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/mac-support.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/fttypes.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftsystem.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftimage.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/compiler-macros.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftstream.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftobjs.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftrender.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftmodapi.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/freetype.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/fterrors.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftmoderr.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/fterrdef.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftglyph.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftsizes.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftlcdfil.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftparams.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftgloadr.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftdrv.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/autohint.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftserv.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftcalc.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftincrem.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftdebug.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftlzw.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/./src/lzw/ftzopen.h \
+  /home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/./src/lzw/ftzopen.c
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftmemory.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/ft2build.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftheader.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftconfig.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftoption.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/ftstdlib.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/integer-types.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/public-macros.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/config/mac-support.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/fttypes.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftsystem.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftimage.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/compiler-macros.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftstream.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftobjs.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftrender.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftmodapi.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/freetype.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/fterrors.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftmoderr.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/fterrdef.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftglyph.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftsizes.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftlcdfil.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftparams.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftgloadr.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftdrv.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/autohint.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftserv.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftcalc.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftincrem.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/internal/ftdebug.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/include/freetype/ftlzw.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/./src/lzw/ftzopen.h:
+
+/home/jeff/50501oh/browser/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/build/bootstrap_builds/sdl2/jni/SDL2_ttf/external/freetype/./src/lzw/ftzopen.c:
