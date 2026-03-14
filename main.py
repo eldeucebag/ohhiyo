@@ -14,9 +14,19 @@ import os
 import sys
 import time
 import threading
+import traceback
 
 # ─── Kivy config BEFORE import ───────────────────────────────────────────────
 os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
+
+# Enable Android logging
+try:
+    from android import log as android_log
+    def log(msg):
+        android_log.android_log_write("RetiBrowser", str(msg))
+except ImportError:
+    def log(msg):
+        print(f"[RetiBrowser] {msg}")
 
 from kivy.app import App
 from kivy.clock import Clock, mainthread
@@ -697,53 +707,73 @@ class RetiBrowserApp(App):
     title = "RetiBrowser – Reticulum Micron Browser"
 
     def build(self):
-        Window.clearcolor = BG_COLOR
+        log("App build() starting...")
+        try:
+            Window.clearcolor = BG_COLOR
 
-        # History
-        self._history     = []
-        self._hist_pos    = -1
-        self._current_node = DEFAULT_NODE
+            # History
+            self._history     = []
+            self._hist_pos    = -1
+            self._current_node = DEFAULT_NODE
 
-        # Reticulum client
-        self._rns = ReticulumClient()
+            # Reticulum client
+            log("Creating ReticulumClient...")
+            self._rns = ReticulumClient()
 
-        # Root layout
-        root = BoxLayout(orientation="vertical")
+            # Root layout
+            log("Creating root layout...")
+            root = BoxLayout(orientation="vertical")
 
-        # Address / nav bar
-        self._addrbar = AddressBar(on_navigate=self._navigate_url)
-        self._addrbar.back_btn.bind(on_press=self._go_back)
-        self._addrbar.fwd_btn.bind(on_press=self._go_forward)
-        self._addrbar.refresh_btn.bind(on_press=self._refresh)
+            # Address / nav bar
+            log("Creating address bar...")
+            self._addrbar = AddressBar(on_navigate=self._navigate_url)
+            self._addrbar.back_btn.bind(on_press=self._go_back)
+            self._addrbar.fwd_btn.bind(on_press=self._go_forward)
+            self._addrbar.refresh_btn.bind(on_press=self._refresh)
 
-        # Page view
-        self._pageview = PageView(on_link_tap=self._on_link_tap)
+            # Page view
+            log("Creating page view...")
+            self._pageview = PageView(on_link_tap=self._on_link_tap)
 
-        # Status bar
-        self._statusbar = StatusBar(text="  Initialising Reticulum…")
+            # Status bar
+            log("Creating status bar...")
+            self._statusbar = StatusBar(text="  Initialising Reticulum…")
 
-        root.add_widget(self._addrbar)
-        root.add_widget(self._pageview)
-        root.add_widget(self._statusbar)
+            log("Adding widgets to root...")
+            root.add_widget(self._addrbar)
+            root.add_widget(self._pageview)
+            root.add_widget(self._statusbar)
 
-        # Start Reticulum in background, then load default page
-        threading.Thread(target=self._init_rns, daemon=True).start()
+            # Start Reticulum in background, then load default page
+            log("Starting Reticulum init thread...")
+            threading.Thread(target=self._init_rns, daemon=True).start()
 
-        return root
+            log("App build() complete, returning root")
+            return root
+        except Exception as e:
+            log(f"Build error: {e}")
+            log(traceback.format_exc())
+            raise
 
     # ── Reticulum init ────────────────────────────────────────────────────────
 
     def _init_rns(self):
         try:
+            log("Starting Reticulum initialization...")
             self._set_status("Connecting to Reticulum via Yggdrasil…")
             self._rns.start(YGGDRASIL_PEER)
+            log("Reticulum started successfully")
             self._set_status("Connected – requesting default page…")
             time.sleep(2)   # allow interface to settle
+            log("Loading default page...")
             self._load_page(DEFAULT_NODE, DEFAULT_PAGE, push_history=True)
         except Exception as e:
+            log(f"Init error: {e}")
+            log(traceback.format_exc())
             self._set_status(f"Init error: {e}")
             self._pageview.show_status(
-                f"[color=#ff5555]Failed to start Reticulum:\n{e}[/color]",
+                f"[color=#ff5555]Failed to start Reticulum:\n{e}[/color]\n\n"
+                f"[color=#888888]{traceback.format_exc()}[/color]",
                 color=(1,0.33,0.33,1)
             )
 
