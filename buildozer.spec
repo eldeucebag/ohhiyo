@@ -8,13 +8,13 @@ source.include_exts = py,png,jpg,kv,atlas
 
 version = 1.0.0
 
-requirements = python3,kivy==2.3.0,rns,cryptography,urllib3,requests,chardet,idna,certifi
-
+requirements = python3,kivy==2.2.1,rns,cryptography,urllib3,requests,chardet,idna,certifi
 # Orientation – portrait by default, can rotate to landscape
 orientation = portrait
 fullscreen = 0
 
 android.permissions = INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, WAKE_LOCK
+android.manifest.activity_attributes = android:hardwareAccelerated="false"
 
 android.api = 33
 android.minapi = 21
