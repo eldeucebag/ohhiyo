@@ -92,8 +92,9 @@ jobs:
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/apkanalyzer ~/.buildozer/android/platform/android-sdk/tools/bin/apkanalyzer
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/lint ~/.buildozer/android/platform/android-sdk/tools/bin/lint
-          # Also create platform-tools symlink
+          # Also create platform-tools and build-tools symlinks
           ln -sf $ANDROID_SDK_ROOT/platform-tools ~/.buildozer/android/platform/android-sdk/platform-tools
+          ln -sf $ANDROID_SDK_ROOT/build-tools/33.0.2 ~/.buildozer/android/platform/android-sdk/build-tools
 
       - name: Build APK with Buildozer
         run: |
