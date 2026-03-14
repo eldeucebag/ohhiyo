@@ -55,10 +55,12 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        env:
+          SKIP_JDK_VERSION_CHECK: true
 
       - name: Install Android SDK components
         run: |
@@ -80,6 +82,7 @@ jobs:
 
       - name: Build APK with Buildozer
         run: |
+          export SKIP_JDK_VERSION_CHECK=true
           buildozer android debug 2>&1 | tee buildozer.log
         shell: bash
 
