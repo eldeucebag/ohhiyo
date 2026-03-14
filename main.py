@@ -21,9 +21,12 @@ os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
 
 # Enable Android logging
 try:
-    from android import log as android_log
+    from android.runnable import run_on_ui_thread  # noqa – just tests p4a env
+    import android
+    # android_log_write(priority, tag, message) – 3 args
+    _ANDROID_LOG_INFO = 4
     def log(msg):
-        android_log.android_log_write("RetiBrowser", str(msg))
+        android.android_log_write(_ANDROID_LOG_INFO, "RetiBrowser", str(msg))
 except ImportError:
     def log(msg):
         print(f"[RetiBrowser] {msg}")
@@ -176,11 +179,16 @@ def parse_micron(text):
         seg_align = cur_align
         buf = ""
 
-        def flush(b):
+        def flush(b, _bold=False, _ital=False, _uline=False, _fg=FG_COLOR, _bg=BG_COLOR):
+            # Values are snapshotted at each call via default-arg trick to avoid
+            # the classic Python closure late-binding bug.
             if b:
-                segments.append({"text":b,"bold":seg_bold,"italic":seg_ital,
-                                  "underline":seg_uline,
-                                  "fg":seg_fg,"bg":seg_bg})
+                segments.append({"text":b,
+                                  "bold":   _bold,
+                                  "italic": _ital,
+                                  "underline": _uline,
+                                  "fg":     _fg,
+                                  "bg":     _bg})
 
         while i < len(line):
             ch = line[i]
@@ -195,7 +203,7 @@ def parse_micron(text):
 
             # `` → reset all formatting
             if nxt == "`":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_fg = FG_COLOR; seg_bg = BG_COLOR
                 seg_bold = seg_ital = seg_uline = False
                 i += 2
@@ -203,28 +211,28 @@ def parse_micron(text):
 
             # `! … `! bold
             if nxt == "!":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_bold = not seg_bold
                 i += 2
                 continue
 
             # `* … `* italic
             if nxt == "*":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_ital = not seg_ital
                 i += 2
                 continue
 
             # `_ … `_ underline
             if nxt == "_":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_uline = not seg_uline
                 i += 2
                 continue
 
             # alignment: `c `l `r  followed by text then `a
             if nxt in ("c","l","r") and i+2 < len(line) and line[i+2] != "`":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_align = {"c":"center","l":"left","r":"right"}[nxt]
                 i += 2
                 continue
@@ -235,31 +243,31 @@ def parse_micron(text):
 
             # Foreground colour: `Fxxx…`f
             if nxt == "F" and i+4 < len(line):
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_fg = hex3_to_rgba(line[i+2:i+5])
                 i += 5
                 continue
             if nxt == "f":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_fg = FG_COLOR
                 i += 2
                 continue
 
             # Background colour: `Bxxx…`b
             if nxt == "B" and i+4 < len(line):
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_bg = hex3_to_rgba(line[i+2:i+5])
                 i += 5
                 continue
             if nxt == "b":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 seg_bg = BG_COLOR
                 i += 2
                 continue
 
             # Link: `[label`path] OR `[`path]
             if nxt == "[":
-                flush(buf); buf = ""
+                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
                 # find closing `
                 j = line.find("`", i+2)
                 if j == -1:
@@ -296,7 +304,7 @@ def parse_micron(text):
             buf += ch
             i += 1
 
-        flush(buf)
+        flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg)
 
         if links:
             # Emit any text segments before the first link, then the links
@@ -344,11 +352,13 @@ class ReticulumClient:
   share_instance   = No
   rpc_listener     = No
 
-[[RetiBrowser Yggdrasil Hub]]
-  type        = TCPClientInterface
-  enabled     = yes
-  target_host = {ygg_peer}
-  target_port = 4965
+[interfaces]
+
+  [[RetiBrowser Yggdrasil Hub]]
+    type        = TCPClientInterface
+    enabled     = yes
+    target_host = {ygg_peer}
+    target_port = 4965
 """
 
     def fetch_page(self, node_hex, page_path, on_done, on_error, on_progress=None):
@@ -400,11 +410,13 @@ class ReticulumClient:
             def link_established(link):
                 link_ready.set()
 
-            def link_failed(link):
-                link_error.set()
+            def link_closed(link):
+                # Only treat as an error if the link never became ready
+                if not link_ready.is_set():
+                    link_error.set()
 
             self._active_link.set_link_established_callback(link_established)
-            self._active_link.set_link_closed_callback(link_failed)
+            self._active_link.set_link_closed_callback(link_closed)
 
             if not link_ready.wait(timeout=LINK_TIMEOUT):
                 on_error("Link establishment timed out")
@@ -500,6 +512,7 @@ class AddressBar(BoxLayout):
         self.back_btn    = IconButton(text="◀", width=dp(44))
         self.fwd_btn     = IconButton(text="▶", width=dp(44))
         self.refresh_btn = IconButton(text="↻", width=dp(44))
+        self.go_btn      = IconButton(text="→", width=dp(44))
         self.address     = TextInput(
             text="", multiline=False, font_size=sp(14),
             background_color=(0.12,0.15,0.20,1),
@@ -508,17 +521,18 @@ class AddressBar(BoxLayout):
             padding=[dp(8), dp(10)],
         )
 
-        for w in (self.back_btn, self.fwd_btn, self.refresh_btn, self.address):
+        for w in (self.back_btn, self.fwd_btn, self.refresh_btn, self.address, self.go_btn):
             self.add_widget(w)
 
         self.address.bind(on_text_validate=self._go)
+        self.go_btn.bind(on_press=self._go)
 
     def _update_bg(self, *_):
         self._bg.pos  = self.pos
         self._bg.size = self.size
 
     def _go(self, instance):
-        self.on_navigate(instance.text.strip())
+        self.on_navigate(self.address.text.strip())
 
     def set_url(self, url):
         self.address.text = url
@@ -618,14 +632,13 @@ class PageView(ScrollView):
 
             elif etype == "divider":
                 w = Widget(size_hint_y=None, height=dp(1))
-                with w.canvas:
-                    Color(0.3, 0.4, 0.5, 1)
-                    Rectangle(pos=w.pos, size=w.size)
-                w.bind(pos=lambda inst,_: (
-                    inst.canvas.clear() or
-                    inst.canvas.add(Color(0.3,0.4,0.5,1)) or
-                    inst.canvas.add(Rectangle(pos=inst.pos, size=inst.size))
-                ))
+                with w.canvas.before:
+                    _clr  = Color(0.3, 0.4, 0.5, 1)
+                    _rect = Rectangle(pos=w.pos, size=w.size)
+                def _upd_divider(inst, _r=_rect):
+                    _r.pos  = inst.pos
+                    _r.size = inst.size
+                w.bind(pos=_upd_divider, size=_upd_divider)
                 self.container.add_widget(w)
 
             elif etype == "link":
@@ -645,7 +658,7 @@ class PageView(ScrollView):
                 # Build markup string for Kivy
                 markup_parts = []
                 for seg in segments:
-                    txt = seg["text"].replace("&","&amp;").replace("[","[").replace("]","]")
+                    txt = seg["text"].replace("&","&amp;").replace("[","[[").replace("]","]]")
                     r,g,b,a = seg["fg"]
                     hex_color = "#{:02x}{:02x}{:02x}".format(
                         int(r*255), int(g*255), int(b*255))
@@ -881,6 +894,14 @@ class RetiBrowserApp(App):
     @mainthread
     def _set_status(self, msg):
         self._statusbar.text = f"  {msg}"
+
+    def on_stop(self):
+        """Clean up Reticulum on app exit to avoid socket leaks."""
+        try:
+            if self._rns._active_link:
+                self._rns._active_link.teardown()
+        except Exception:
+            pass
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
