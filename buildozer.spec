@@ -27,9 +27,6 @@ android.archs = arm64-v8a, armeabi-v7a
 # Enable SDL2 bootstrap for better compatibility
 p4a.bootstrap = sdl2
 
-# Extra pip packages
-p4a.extra-pip-requirements = requirements.txt
-
 # App icon (place a 512x512 PNG at this path)
 # icon.filename = %(source.dir)s/icon.png
 
