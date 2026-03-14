@@ -59,6 +59,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
         env:
           SKIP_JDK_VERSION_CHECK: true
 
