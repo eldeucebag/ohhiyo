@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas
 
 version = 1.0.0
 
-requirements = python3,kivy==2.3.0,rns,cryptography,setuptools
+requirements = python3,kivy==2.3.0,rns,cryptography
 
 # Orientation – portrait by default, can rotate to landscape
 orientation = portrait
