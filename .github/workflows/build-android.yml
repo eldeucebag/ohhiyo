@@ -86,9 +86,14 @@ jobs:
           # Copy accepted licenses to buildozer's future SDK location
           mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
           cp -r $ANDROID_SDK_ROOT/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
-          # Create tools directory structure that buildozer expects
+          # Create tools directory structure that buildozer/p4a expects
           mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager
+          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/apkanalyzer ~/.buildozer/android/platform/android-sdk/tools/bin/apkanalyzer
+          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/lint ~/.buildozer/android/platform/android-sdk/tools/bin/lint
+          # Also create platform-tools symlink
+          ln -sf $ANDROID_SDK_ROOT/platform-tools ~/.buildozer/android/platform/android-sdk/platform-tools
 
       - name: Build APK with Buildozer
         run: |
