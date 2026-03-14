@@ -81,6 +81,9 @@ jobs:
           # Symlink only the NDK to prevent buildozer from downloading it
           ln -sf $ANDROID_SDK_ROOT/ndk/25.2.9519653 ~/.buildozer/android/platform/android-ndk-r25b
           ln -sf $ANDROID_SDK_ROOT/ndk/25.2.9519653 ~/.buildozer/android/platform/android-ndk-r25.2.9519653
+          # Copy accepted licenses to buildozer's future SDK location
+          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+          cp -r $ANDROID_SDK_ROOT/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
 
       - name: Build APK with Buildozer
         run: |
