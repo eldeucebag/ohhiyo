@@ -8,7 +8,7 @@ source.include_exts = py,png,jpg,kv,atlas
 
 version = 1.0.0
 
-requirements = python3,kivy==2.2.1,rns,cryptography,urllib3,requests,chardet,idna,certifi,bz2
+requirements = python3,kivy==2.2.1,rns,cryptography,urllib3,requests,chardet,idna,certifi,bz2,lzma,sqlite3
 # Orientation – portrait by default, can rotate to landscape
 orientation = portrait
 fullscreen = 0

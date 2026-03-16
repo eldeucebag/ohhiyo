@@ -49,6 +49,11 @@ jobs:
             unzip \
             wget \
             zlib1g-dev \
+            libbz2-dev \
+            liblzma-dev \
+            libsqlite3-dev \
+            libreadline-dev \
+            uuid-dev \
             librust-openssl-dev
 
       - name: Set up Java
