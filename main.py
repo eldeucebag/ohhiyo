@@ -21,12 +21,15 @@ os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
 
 # Enable Android logging
 try:
-    from android.runnable import run_on_ui_thread  # noqa – just tests p4a env
+    # On Android, stdout/stderr are automatically redirected to logcat by p4a.
+    # We can also use the 'android' module for specific features if needed.
     import android
-    # android_log_write(priority, tag, message) – 3 args
-    _ANDROID_LOG_INFO = 4
+    from android.runnable import run_on_ui_thread
     def log(msg):
-        android.android_log_write(_ANDROID_LOG_INFO, "RetiBrowser", str(msg))
+        print(f"[RetiBrowser] {msg}")
+        # If we really want to use the native Android log, the correct way in newer p4a
+        # is often just print(), but some older versions used android.log().
+        # However, print() is the most reliable and standard way.
 except ImportError:
     def log(msg):
         print(f"[RetiBrowser] {msg}")
