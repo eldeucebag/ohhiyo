@@ -52,7 +52,7 @@ from kivy.uix.anchorlayout import AnchorLayout
 import RNS
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-YGGDRASIL_PEER   = "99b91c274bd7c2b926426618a3c2dbbd480cae10eadf9d53aabb873d2bbbbb71"
+YGGDRASIL_PEER   = "200:a468:59c6:5b39:8f9a:ae3c:7940:2aa0"
 DEFAULT_NODE     = "f97f412b9ef6d1c2330ca5ee28ee9e31"
 DEFAULT_PAGE     = "/page/index.mu"
 PAGE_TIMEOUT     = 30          # seconds to wait for a page response
