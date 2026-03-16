@@ -774,9 +774,9 @@ class RetiBrowserApp(App):
             root.add_widget(self._pageview)
             root.add_widget(self._statusbar)
 
-            # Start Reticulum in background, then load default page
-            log("Starting Reticulum init thread...")
-            threading.Thread(target=self._init_rns, daemon=True).start()
+            # Start Reticulum on main thread (required for signals), then load default page
+            log("Scheduling Reticulum init...")
+            Clock.schedule_once(self._init_rns_main, 0.5)
 
             log("App build() complete, returning root")
             return root
@@ -787,16 +787,17 @@ class RetiBrowserApp(App):
 
     # ── Reticulum init ────────────────────────────────────────────────────────
 
-    def _init_rns(self):
+    def _init_rns_main(self, dt=None):
         try:
-            log("Starting Reticulum initialization...")
+            log("Starting Reticulum initialization on main thread...")
             self._set_status("Connecting to Reticulum via Yggdrasil…")
             self._rns.start(YGGDRASIL_PEER)
             log("Reticulum started successfully")
-            self._set_status("Connected – requesting default page…")
-            time.sleep(2)   # allow interface to settle
-            log("Loading default page...")
-            self._load_page(DEFAULT_NODE, DEFAULT_PAGE, push_history=True)
+            self._set_status("Connected – settling interface…")
+            
+            # Use a thread for the settlement delay and initial load
+            threading.Thread(target=self._init_settle_and_load, daemon=True).start()
+            
         except Exception as e:
             log(f"Init error: {e}")
             log(traceback.format_exc())
@@ -806,6 +807,15 @@ class RetiBrowserApp(App):
                 f"[color=#888888]{traceback.format_exc()}[/color]",
                 color=(1,0.33,0.33,1)
             )
+
+    def _init_settle_and_load(self):
+        try:
+            time.sleep(2)   # allow interface to settle
+            log("Loading default page...")
+            self._load_page(DEFAULT_NODE, DEFAULT_PAGE, push_history=True)
+        except Exception as e:
+            log(f"Initial load error: {e}")
+            self._set_status(f"Load error: {e}")
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
