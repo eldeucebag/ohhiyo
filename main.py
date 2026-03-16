@@ -402,10 +402,20 @@ class ReticulumClient:
                         return
                     time.sleep(0.25)
 
-            identity = RNS.Identity.recall(dest_hash)
-            if not identity:
-                on_error("Could not recall identity for this node")
-                return
+            # has_path() becoming True means RNS knows a route, but the full
+            # identity (public key) needed to open a Link arrives via the
+            # announce packet which may follow shortly after.  Poll briefly.
+            identity = None
+            deadline = time.time() + LINK_TIMEOUT
+            while identity is None:
+                identity = RNS.Identity.recall(dest_hash)
+                if identity:
+                    break
+                if time.time() > deadline:
+                    on_error("Could not recall identity for this node — "
+                             "announce not received within timeout")
+                    return
+                time.sleep(0.25)
 
             destination = RNS.Destination(
                 identity,
