@@ -340,7 +340,21 @@ class ReticulumClient:
     def start(self, yggdrasil_peer=YGGDRASIL_PEER):
         """Initialise Reticulum with a Yggdrasil interface to the community hub."""
         config = self._build_config(yggdrasil_peer)
-        config_path = os.path.expanduser("~/.reticulum_retibrowser")
+        
+        # Determine a writable path for configuration.
+        # On Android, home (~) might be /data or / which is read-only for apps.
+        # Kivy's App.user_data_dir is the standard way to get a writable path.
+        try:
+            from kivy.app import App as KivyApp
+            app_inst = KivyApp.get_running_app()
+            if app_inst and app_inst.user_data_dir:
+                config_root = app_inst.user_data_dir
+            else:
+                config_root = os.path.expanduser("~")
+        except Exception:
+            config_root = os.path.expanduser("~")
+
+        config_path = os.path.join(config_root, ".reticulum_retibrowser")
         os.makedirs(config_path, exist_ok=True)
         with open(os.path.join(config_path, "config"), "w") as f:
             f.write(config)
