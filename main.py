@@ -417,7 +417,7 @@ class ReticulumClient:
                 RNS.Destination.OUT,
                 RNS.Destination.SINGLE,
                 "nomadnetwork",
-                "node"
+                "page"
             )
 
             link_ready = threading.Event()
