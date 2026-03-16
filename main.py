@@ -7,7 +7,7 @@ Requirements:
     pip install kivy rns
 
 Usage:
-    python retibrowser.py
+    python main.py
 """
 
 import os
@@ -21,15 +21,10 @@ os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
 
 # Enable Android logging
 try:
-    # On Android, stdout/stderr are automatically redirected to logcat by p4a.
-    # We can also use the 'android' module for specific features if needed.
     import android
     from android.runnable import run_on_ui_thread
     def log(msg):
         print(f"[RetiBrowser] {msg}")
-        # If we really want to use the native Android log, the correct way in newer p4a
-        # is often just print(), but some older versions used android.log().
-        # However, print() is the most reliable and standard way.
 except ImportError:
     def log(msg):
         print(f"[RetiBrowser] {msg}")
@@ -332,15 +327,15 @@ class ReticulumClient:
     """Manages the RNS instance and page fetching."""
 
     def __init__(self):
-        self.rns       = None
-        self.identity  = None
+        self.rns          = None
+        self.identity     = None
         self._active_link = None
-        self._lock     = threading.Lock()
+        self._lock        = threading.Lock()
 
     def start(self, yggdrasil_peer=YGGDRASIL_PEER):
         """Initialise Reticulum with a Yggdrasil interface to the community hub."""
         config = self._build_config(yggdrasil_peer)
-        
+
         # Determine a writable path for configuration.
         # On Android, home (~) might be /data or / which is read-only for apps.
         # Kivy's App.user_data_dir is the standard way to get a writable path.
@@ -396,8 +391,8 @@ class ReticulumClient:
         try:
             dest_hash = bytes.fromhex(node_hex)
 
-            # Request a path from the destination - NomadNet uses
-            # "nomadnetwork.node" as the app/aspect.
+            # Request a path from the destination.
+            # NomadNet uses "nomadnetwork.page" as the app/aspect.
             if not RNS.Transport.has_path(dest_hash):
                 RNS.Transport.request_path(dest_hash)
                 deadline = time.time() + LINK_TIMEOUT
@@ -422,13 +417,15 @@ class ReticulumClient:
 
             link_ready = threading.Event()
             link_error = threading.Event()
-            self._active_link = RNS.Link(destination)
+
+            with self._lock:
+                self._active_link = RNS.Link(destination)
 
             def link_established(link):
                 link_ready.set()
 
             def link_closed(link):
-                # Only treat as an error if the link never became ready
+                # Only signal error if the link never became ready
                 if not link_ready.is_set():
                     link_error.set()
 
@@ -439,31 +436,46 @@ class ReticulumClient:
                 on_error("Link establishment timed out")
                 return
 
-            # Send a page request via RNS link.request()
-            # NomadNet expects the path as bytes in the request data.
+            if link_error.is_set():
+                on_error("Link closed before it was ready")
+                return
+
+            # Send a page request via RNS link.request().
+            # NomadNet expects the page path as the request path argument.
             request_done  = threading.Event()
             request_error = threading.Event()
             result_holder = [None]
 
             def response_received(receipt):
+                """
+                FIX: check receipt.response is not None rather than relying
+                solely on status == FAILED.  RNS may deliver the response in
+                DELIVERED state, and the old code would never set request_done
+                in that case, causing the manual deadline loop to time out.
+                """
                 if receipt.status == RNS.RequestReceipt.FAILED:
                     request_error.set()
                     return
-                result_holder[0] = receipt.response
-                request_done.set()
+                # READY, DELIVERED, or any other non-failed state
+                if receipt.response is not None:
+                    result_holder[0] = receipt.response
+                    request_done.set()
 
             def progress_updated(receipt):
                 if on_progress:
                     pct = int(receipt.progress * 100)
                     on_progress(pct)
 
+            def request_failed(receipt):
+                request_error.set()
+
             self._active_link.request(
                 page_path,
-                data            = None,
+                data                 = None,
                 response_callback    = response_received,
-                failed_callback      = lambda r: request_error.set(),
+                failed_callback      = request_failed,
                 progress_callback    = progress_updated,
-                timeout         = PAGE_TIMEOUT
+                timeout              = PAGE_TIMEOUT,
             )
 
             deadline = time.time() + PAGE_TIMEOUT
@@ -490,11 +502,13 @@ class ReticulumClient:
             on_done(content)
 
         except Exception as e:
-            on_error(f"Error: {e}")
+            on_error(f"Error: {e}\n{traceback.format_exc()}")
         finally:
             try:
-                if self._active_link:
-                    self._active_link.teardown()
+                with self._lock:
+                    if self._active_link:
+                        self._active_link.teardown()
+                        self._active_link = None
             except Exception:
                 pass
 
@@ -742,8 +756,8 @@ class RetiBrowserApp(App):
             Window.clearcolor = BG_COLOR
 
             # History
-            self._history     = []
-            self._hist_pos    = -1
+            self._history      = []
+            self._hist_pos     = -1
             self._current_node = DEFAULT_NODE
 
             # Reticulum client
@@ -794,10 +808,10 @@ class RetiBrowserApp(App):
             self._rns.start(YGGDRASIL_PEER)
             log("Reticulum started successfully")
             self._set_status("Connected – settling interface…")
-            
+
             # Use a thread for the settlement delay and initial load
             threading.Thread(target=self._init_settle_and_load, daemon=True).start()
-            
+
         except Exception as e:
             log(f"Init error: {e}")
             log(traceback.format_exc())
@@ -925,8 +939,10 @@ class RetiBrowserApp(App):
     def on_stop(self):
         """Clean up Reticulum on app exit to avoid socket leaks."""
         try:
-            if self._rns._active_link:
-                self._rns._active_link.teardown()
+            with self._rns._lock:
+                if self._rns._active_link:
+                    self._rns._active_link.teardown()
+                    self._rns._active_link = None
         except Exception:
             pass
 
