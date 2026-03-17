@@ -52,7 +52,8 @@ import RNS
 # Both server and clients connect here, avoiding NAT/firewall issues
 NODERAGE_HOST    = "rns.noderage.org"
 NODERAGE_PORT    = 4242
-DEFAULT_NODE     = ""                # Will be set after connecting to hub
+# Default node - your page node server's destination hash
+DEFAULT_NODE     = "f97f412b9ef6d1c2330ca5ee28ee9e31"
 DEFAULT_PAGE     = "/page/index.mu"
 PAGE_TIMEOUT     = 30                # seconds to wait for a page response
 LINK_TIMEOUT     = 15                # seconds to establish a link
