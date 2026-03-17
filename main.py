@@ -55,6 +55,28 @@ from kivy.animation import Animation
 import RNS
 import RNS.vendor.umsgpack as umsgpack
 
+# ─── Font Configuration ───────────────────────────────────────────────────────
+# Bundled JetBrains Mono Nerd Font for full Unicode glyph support
+FONT_PATH = None
+def _init_font():
+    """Initialize the bundled font path."""
+    global FONT_PATH
+    # On Android, fonts are in the app's files directory
+    for base in [
+        os.path.dirname(os.path.abspath(__file__)),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
+    ]:
+        font_path = os.path.join(base, "JetBrainsMonoNerdFont.ttf")
+        if os.path.exists(font_path):
+            FONT_PATH = font_path
+            log(f"Using bundled font: {FONT_PATH}")
+            return
+    # Fallback to system font
+    FONT_PATH = ""
+    log("Using system default font")
+
+_init_font()
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 # Noderage Community Hub - public Reticulum transport relay
 # Both server and clients connect here, avoiding NAT/firewall issues
@@ -440,35 +462,51 @@ class AnnounceHandler:
                 try:
                     # app_data might be bytes (needs unpacking) or already unpacked
                     if isinstance(app_data, bytes):
-                        info = umsgpack.unpackb(app_data)
+                        try:
+                            info = umsgpack.unpackb(app_data)
+                            log(f"Unpacked announce bytes: {info}")
+                        except Exception as unpack_err:
+                            log(f"Failed to unpack announce data: {unpack_err}")
+                            info = {}
                     elif isinstance(app_data, dict):
                         info = app_data
+                        log(f"Announce data (dict): {info}")
                     elif isinstance(app_data, list):
                         # Some announces come as lists - extract what we can
                         info = {"name": f"Node {node_hash[:8]}", "type": "unknown"}
+                        log(f"Announce data (list, using fallback): {info}")
                     else:
                         info = {}
+                        log(f"Announce data (unknown type: {type(app_data)}): {app_data}")
 
-                    # Extract name with fallback
+                    # Extract node name from NomadNet announce data
+                    # NomadNet includes: name, type, capabilities, timestamp
                     extracted_name = None
                     if isinstance(info, dict):
-                        extracted_name = info.get("name")
-                        if not extracted_name:
-                            # Try alternative fields
-                            extracted_name = info.get("title") or info.get("display_name")
-                    
+                        # Try common NomadNet node name fields
+                        extracted_name = (
+                            info.get("name") or 
+                            info.get("nodename") or 
+                            info.get("node_name") or
+                            info.get("title") or 
+                            info.get("display_name") or
+                            info.get("hostname")
+                        )
+                        log(f"Name extraction from {list(info.keys())}: got '{extracted_name}'")
+
                     if not extracted_name:
                         extracted_name = f"Node {node_hash[:8]}"
-                    
+
                     self._announced_nodes[node_hash] = {
                         "hash": node_hash,
                         "name": extracted_name,
                         "timestamp": info.get("timestamp", time.time()) if isinstance(info, dict) else time.time(),
                         "capabilities": info.get("capabilities", []) if isinstance(info, dict) else [],
                         "type": info.get("type", "unknown") if isinstance(info, dict) else "unknown",
+                        "raw_info": info,  # Store raw info for debugging
                     }
                     RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}... ({self._announced_nodes[node_hash]['name']})", RNS.LOG_NOTICE)
-                    log(f"Announce stored: name={extracted_name}, hash={node_hash[:8]}..., raw_info={info}")
+                    log(f"Announce stored: name={extracted_name}, hash={node_hash[:8]}..., type={self._announced_nodes[node_hash].get('type', 'unknown')}, capabilities={self._announced_nodes[node_hash].get('capabilities', [])}")
 
                     # Callback to update UI
                     if self.on_announce_callback:
@@ -868,9 +906,9 @@ class NodeDrawer(BoxLayout):
         node_hash = node_info.get("hash", "")
         if node_hash in self._displayed_hashes:
             return
-        
+
         self._displayed_hashes.add(node_hash)
-        
+
         # Create node card
         card = BoxLayout(
             orientation="vertical",
@@ -883,10 +921,14 @@ class NodeDrawer(BoxLayout):
             card._bg = Rectangle(pos=card.pos, size=card.size)
         card.bind(pos=lambda i, v: setattr(i._bg, 'pos', v),
                   size=lambda i, v: setattr(i._bg, 'size', v))
-        
-        # Node name
+
+        # Node name - use the name from node_info
         name = node_info.get("name", "Unknown Node")
-        log(f"Adding node to UI: {name} ({node_hash[:8]}...)")
+        node_type = node_info.get("type", "unknown")
+        log(f"Adding node to UI: name='{name}', type={node_type}, hash={node_hash[:8]}...")
+        log(f"Full node_info: {node_info}")
+
+        # Display format: "Node Name" on first line, hash on second
         name_lbl = Label(
             text=name,
             halign="left",
@@ -894,18 +936,18 @@ class NodeDrawer(BoxLayout):
             font_size=sp(14),
             bold=True,
             color=FG_COLOR,
-            font_name="Roboto",
+            font_name=FONT_PATH,
         )
         name_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
 
-        # Node hash (shortened)
+        # Node hash (shortened) with type info
         hash_lbl = Label(
-            text=f"{node_hash[:16]}...",
+            text=f"[{node_type}] {node_hash[:16]}...",
             halign="left",
             valign="top",
             font_size=sp(10),
             color=(0.6, 0.6, 0.6, 1),
-            font_name="Roboto",
+            font_name=FONT_PATH,
         )
         hash_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
         
@@ -1022,8 +1064,8 @@ class NavigationDrawer(FloatLayout):
 class IconButton(Button):
     """A flat icon-style button using Unicode symbols.
 
-    Uses Roboto font which provides excellent Unicode glyph coverage
-    including arrows and symbols on Android.
+    Uses bundled JetBrains Mono Nerd Font for full Unicode glyph coverage
+    including arrows, symbols, and icons.
     """
     def __init__(self, **kwargs):
         # Set defaults before calling super() so passed kwargs can override
@@ -1035,7 +1077,7 @@ class IconButton(Button):
         kwargs.setdefault('size_hint_x', None)
         kwargs.setdefault('width', dp(52))
         kwargs.setdefault('bold', False)
-        kwargs.setdefault('font_name', 'Roboto')  # Android system font with Unicode support
+        kwargs.setdefault('font_name', FONT_PATH)  # Bundled Nerd Font
         kwargs.setdefault('halign', 'center')
         kwargs.setdefault('valign', 'middle')
         kwargs.setdefault('markup', False)
@@ -1257,7 +1299,7 @@ class PageView(ScrollView):
                     valign="top",
                     size_hint_y=None,
                     color=(0.7, 0.7, 0.7, 1),  # Dimmer color for literal text
-                    font_name="monospace",  # Use monospace font if available
+                    font_name=FONT_PATH,  # Use bundled JetBrains Mono Nerd Font (monospace)
                 )
                 lbl.bind(
                     width=lambda inst, w: setattr(inst, 'text_size', (w, None)),

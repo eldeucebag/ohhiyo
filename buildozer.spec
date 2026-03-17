@@ -4,7 +4,7 @@ package.name = retibrowser
 package.domain = org.retibrowser
 
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,xml
+source.include_exts = py,png,jpg,kv,atlas,xml,ttf
 
 version = 1.0.0
 
