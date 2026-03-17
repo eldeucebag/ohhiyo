@@ -20,6 +20,10 @@ import traceback
 # ─── Kivy config BEFORE import ───────────────────────────────────────────────
 os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
 
+# Configure Kivy text provider for best Unicode support
+# Use SDL2 text provider which has better Unicode glyph fallback
+os.environ["KIVY_TEXT"] = "sdl2"
+
 # Enable Android logging
 try:
     import android
@@ -791,15 +795,10 @@ class NodeDrawer(BoxLayout):
         header.add_widget(title)
         
         # Close button
-        close_btn = Button(
-            text="✕",
+        close_btn = IconButton(
+            text="×",  # U+00D7 MULTIPLICATION SIGN (more widely supported)
             size_hint_x=None,
             width=dp(44),
-            background_normal="",
-            background_down="",
-            background_color=(0, 0, 0, 0),
-            color=FG_COLOR,
-            font_size=sp(24),
         )
         close_btn.bind(on_press=self._close)
         header.add_widget(close_btn)
@@ -1000,20 +999,27 @@ class NavigationDrawer(FloatLayout):
 
 
 class IconButton(Button):
-    """A flat icon-style button using Unicode symbols."""
+    """A flat icon-style button using Unicode symbols.
+    
+    Uses system font with Unicode fallback. On Android, Roboto provides
+    excellent Unicode glyph coverage including arrows and symbols.
+    """
     def __init__(self, **kwargs):
+        # Set defaults before calling super() so passed kwargs can override
+        kwargs.setdefault('background_normal', '')
+        kwargs.setdefault('background_down', '')
+        kwargs.setdefault('background_color', BTN_COLOR)
+        kwargs.setdefault('color', FG_COLOR)
+        kwargs.setdefault('font_size', sp(28))
+        kwargs.setdefault('size_hint_x', None)
+        kwargs.setdefault('width', dp(52))
+        kwargs.setdefault('bold', False)
+        kwargs.setdefault('font_name', '')  # System default (Roboto on Android)
+        kwargs.setdefault('halign', 'center')
+        kwargs.setdefault('valign', 'middle')
+        kwargs.setdefault('markup', False)
+        
         super().__init__(**kwargs)
-        self.background_normal  = ""
-        self.background_down    = ""
-        self.background_color   = BTN_COLOR
-        self.color              = FG_COLOR
-        self.font_size          = sp(20)
-        self.size_hint_x        = None
-        self.width              = dp(48)
-        self.bold               = False
-        # Use a font that supports Unicode arrow/symbol glyphs
-        # Roboto is standard on Android, DejaVuSans on Linux
-        self.font_name = 'Roboto'
 
 
 class AddressBar(BoxLayout):
@@ -1027,10 +1033,10 @@ class AddressBar(BoxLayout):
             self._bg = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._update_bg, size=self._update_bg)
 
-        self.back_btn    = IconButton(text="◀", width=dp(44))
-        self.fwd_btn     = IconButton(text="▶", width=dp(44))
-        self.refresh_btn = IconButton(text="↻", width=dp(44))
-        self.go_btn      = IconButton(text="→", width=dp(44))
+        self.back_btn    = IconButton(text="←", width=dp(44))  # U+2190 LEFTWARDS ARROW
+        self.fwd_btn     = IconButton(text="→", width=dp(44))  # U+2192 RIGHTWARDS ARROW
+        self.refresh_btn = IconButton(text="⟳", width=dp(44))  # U+27F3 CLOCKWISE GAPPED CIRCLE ARROW
+        self.go_btn      = IconButton(text="➜", width=dp(44))  # U+279C HEAVY ROUND-TIPPED RIGHTWARDS ARROW
         self.address     = TextInput(
             text="", multiline=False, font_size=sp(14),
             background_color=(0.12,0.15,0.20,1),
@@ -1290,9 +1296,8 @@ class RetiBrowserApp(App):
             
             # Add menu button to open drawer
             menu_btn = IconButton(
-                text="☰",
+                text="≡",  # U+2261 IDENTICAL TO (hamburger menu)
                 width=dp(44),
-                font_size=sp(24),
             )
             menu_btn.bind(on_press=lambda *_: self._toggle_drawer())
             self._addrbar.add_widget(menu_btn, index=0)
