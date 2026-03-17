@@ -50,8 +50,9 @@ import RNS
 # ─── Constants ────────────────────────────────────────────────────────────────
 # Server configuration - update SERVER_HOST to your server's IP address
 # For local WiFi testing: use your server's local IP (e.g., 192.168.x.x)
-# For remote access: use your public IP (UPnP auto-forwards port 4965)
-SERVER_HOST      = "167.100.58.227"  # Your server's public IP
+# For remote access: use your public IP and forward port 4965 in router
+# SERVER_HOST      = "167.100.58.227"  # Your server's PUBLIC IP
+SERVER_HOST      = "192.168.0.143"    # Your server's LOCAL IP (for same WiFi)
 SERVER_PORT      = 4965              # RNS TCP port
 DEFAULT_NODE     = "f97f412b9ef6d1c2330ca5ee28ee9e31"  # Server's RNS destination hash
 DEFAULT_PAGE     = "/page/index.mu"
