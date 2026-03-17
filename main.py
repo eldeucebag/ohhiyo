@@ -1014,11 +1014,11 @@ class IconButton(Button):
         kwargs.setdefault('size_hint_x', None)
         kwargs.setdefault('width', dp(52))
         kwargs.setdefault('bold', False)
-        kwargs.setdefault('font_name', '')  # System default (Roboto on Android)
+        # Don't set font_name - let Kivy use its default system font
         kwargs.setdefault('halign', 'center')
         kwargs.setdefault('valign', 'middle')
         kwargs.setdefault('markup', False)
-        
+
         super().__init__(**kwargs)
 
 
