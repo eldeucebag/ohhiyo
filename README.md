@@ -2,7 +2,7 @@
 
 A Kivy-based Reticulum NomadNet Micron Browser for Android devices.
 
-Connects to RNS Page Nodes over TCP/IP and renders Micron markup pages.
+Connects to RNS Page Nodes via the **Noderage Community Hub** (`rns.noderage.org:4242`).
 
 ## Requirements
 
@@ -26,20 +26,21 @@ buildozer android debug
 
 ## Configuration
 
-Edit `main.py` to configure your server connection:
+The app connects to the Noderage Community Hub by default. Edit `main.py` if needed:
 
 ```python
-# Server configuration - update SERVER_HOST to your server's public IP
-SERVER_HOST = "167.100.58.227"  # Your server's public IP address
-SERVER_PORT = 4965              # RNS TCP port
+# Noderage Community Hub - public Reticulum transport relay
+NODERAGE_HOST = "rns.noderage.org"
+NODERAGE_PORT = 4242
 ```
 
 ## Usage
 
-1. Ensure the RNS Page Node server is running
+1. Ensure your RNS Page Node server is running and connected to Noderage
 2. Open the RetiBrowser app on your Android device
-3. The app will automatically connect to the configured server
-4. Enter a destination hash to browse pages:
+3. The app automatically connects to `rns.noderage.org:4242`
+4. Wait for the server's announce to propagate (usually a few seconds)
+5. Enter the destination hash to browse pages:
    ```
    <f97f412b9ef6d1c2330ca5ee28ee9e31>
    ```
@@ -51,6 +52,18 @@ SERVER_PORT = 4965              # RNS TCP port
 - **Address bar**: Enter destination hash or full URL
   - `<hash>:/page/index.mu` - Specific page
   - `<hash>` - Loads default index page
+
+## Architecture
+
+```
+┌──────────────┐     ┌──────────────────┐     ┌─────────────┐
+│  RetiBrowser │────▶│  Noderage Hub    │◀────│  Page Node  │
+│  (Android)   │     │  rns.noderage.org│     │  (server)   │
+└──────────────┘     └──────────────────┘     └─────────────┘
+   TCP client            Public relay          TCP client
+```
+
+Both the browser and page node connect outbound to the Noderage hub, avoiding NAT/firewall issues.
 
 ## Micron Markup
 
@@ -66,17 +79,19 @@ The browser renders Micron markup with support for:
 ## Troubleshooting
 
 **"Path not found" error:**
-- Ensure the server is running (`./start-page-node.sh`)
-- Check that port 4965 is open on the server firewall
-- Verify SERVER_HOST in main.py matches your server's public IP
+- Ensure both your server and phone are connected to the internet
+- Check that your server is connected to Noderage (check server logs)
+- Wait for the server's announce to propagate (can take up to 30 minutes)
+- Verify the destination hash is correct
 
 **"Identity not received" error:**
 - The server may not be announcing properly
 - Check server logs for "Sent announce" messages
+- Wait longer for announces to propagate through the hub
 
 **Connection timeout:**
-- Verify network connectivity between Android device and server
-- Check that rnsd is running on the server
+- Check your internet connection
+- Verify Noderage hub is reachable: `telnet rns.noderage.org 4242`
 
 ## License
 

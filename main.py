@@ -48,13 +48,11 @@ from kivy.uix.anchorlayout import AnchorLayout
 import RNS
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-# Server configuration - update SERVER_HOST to your server's IP address
-# For local WiFi testing: use your server's local IP (e.g., 192.168.x.x)
-# For remote access: use your public IP and forward port 4965 in router
-# SERVER_HOST      = "167.100.58.227"  # Your server's PUBLIC IP
-SERVER_HOST      = "192.168.0.143"    # Your server's LOCAL IP (for same WiFi)
-SERVER_PORT      = 4965              # RNS TCP port
-DEFAULT_NODE     = "f97f412b9ef6d1c2330ca5ee28ee9e31"  # Server's RNS destination hash
+# Noderage Community Hub - public Reticulum transport relay
+# Both server and clients connect here, avoiding NAT/firewall issues
+NODERAGE_HOST    = "rns.noderage.org"
+NODERAGE_PORT    = 4242
+DEFAULT_NODE     = ""                # Will be set after connecting to hub
 DEFAULT_PAGE     = "/page/index.mu"
 PAGE_TIMEOUT     = 30                # seconds to wait for a page response
 LINK_TIMEOUT     = 15                # seconds to establish a link
@@ -338,9 +336,9 @@ class ReticulumClient:
         self._active_link = None
         self._lock        = threading.Lock()
 
-    def start(self, server_host=SERVER_HOST, server_port=SERVER_PORT):
-        """Initialise Reticulum with a TCPClientInterface to the community hub."""
-        config = self._build_config(server_host, server_port)
+    def start(self, hub_host=NODERAGE_HOST, hub_port=NODERAGE_PORT):
+        """Initialise Reticulum with a TCPClientInterface to Noderage hub."""
+        config = self._build_config(hub_host, hub_port)
 
         # Determine a writable path for configuration.
         # On Android, home (~) might be /data or / which is read-only for apps.
@@ -364,7 +362,7 @@ class ReticulumClient:
         self.identity = RNS.Identity()
         RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
 
-    def _build_config(self, server_host, server_port):
+    def _build_config(self, hub_host, hub_port):
         return f"""[reticulum]
   enable_transport = Yes
   share_instance   = No
@@ -372,11 +370,11 @@ class ReticulumClient:
 
 [interfaces]
 
-  [[Community Hub TCP]]
+  [[Noderage Community Hub]]
     type        = TCPClientInterface
     enabled     = yes
-    target_host = {server_host}
-    target_port = {server_port}
+    target_host = {hub_host}
+    target_port = {hub_port}
 """
 
     def fetch_page(self, node_hex, page_path, on_done, on_error, on_progress=None):
@@ -428,10 +426,10 @@ class ReticulumClient:
                         on_error(
                             f"[FAIL] Path not found after {LINK_TIMEOUT}s\n"
                             f"  Node: {node_hex}\n"
-                            f"  Server: {SERVER_HOST}:{SERVER_PORT}\n"
+                            f"  Hub: {NODERAGE_HOST}:{NODERAGE_PORT}\n"
                             f"  Interfaces up: {len(interfaces)}\n"
-                            f"  Check: is rnsd running on server? "
-                            f"Can Android reach {SERVER_HOST}?"
+                            f"  Check: is your server connected to Noderage? "
+                            f"Is your device connected to the internet?"
                         )
                         return
                     time.sleep(0.25)
@@ -879,8 +877,8 @@ class RetiBrowserApp(App):
     def _init_rns_main(self, dt=None):
         try:
             log("Starting Reticulum initialization on main thread...")
-            self._set_status(f"Connecting to Community Hub at {SERVER_HOST}:{SERVER_PORT}…")
-            self._rns.start(SERVER_HOST, SERVER_PORT)
+            self._set_status(f"Connecting to Noderage Hub at {NODERAGE_HOST}:{NODERAGE_PORT}…")
+            self._rns.start(NODERAGE_HOST, NODERAGE_PORT)
             log("Reticulum started successfully")
             self._set_status("Connected – settling interface…")
 
