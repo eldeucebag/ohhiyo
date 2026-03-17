@@ -360,7 +360,7 @@ class ReticulumClient:
 
     def _build_config(self, ygg_peer):
         return f"""[reticulum]
-  enable_transport = No
+  enable_transport = Yes
   share_instance   = No
   rpc_listener     = No
 

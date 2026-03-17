@@ -13,8 +13,11 @@ requirements = python3,kivy==2.2.1,rns,cryptography,urllib3,requests,chardet,idn
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, WAKE_LOCK
+android.permissions = INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, CHANGE_NETWORK_STATE, WAKE_LOCK, FOREGROUND_SERVICE
 android.manifest.activity_attributes = android:hardwareAccelerated="false"
+
+# Required for IPv6 (Yggdrasil) connectivity and background RNS operation
+android.manifest.application_attributes = android:usesCleartextTraffic="false" android:networkSecurityConfig="@xml/network_security_config"
 
 android.api = 33
 android.minapi = 21
