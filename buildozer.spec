@@ -4,7 +4,7 @@ package.name = retibrowser
 package.domain = org.retibrowser
 
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas
+source.include_exts = py,png,jpg,kv,atlas,xml
 
 version = 1.0.0
 
@@ -16,8 +16,10 @@ fullscreen = 0
 android.permissions = INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, CHANGE_WIFI_STATE, CHANGE_NETWORK_STATE, WAKE_LOCK, FOREGROUND_SERVICE
 android.manifest.activity_attributes = android:hardwareAccelerated="false"
 
-# Required for IPv6 (Yggdrasil) connectivity and background RNS operation
-android.manifest.application_attributes = android:usesCleartextTraffic="false" android:networkSecurityConfig="@xml/network_security_config"
+# RNS encrypts all traffic at the application layer so cleartext rules
+# do not apply. Removed networkSecurityConfig reference — the xml file
+# was never included in source.include_exts, causing install failures.
+android.manifest.application_attributes = android:usesCleartextTraffic="true"
 
 android.api = 33
 android.minapi = 21
