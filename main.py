@@ -44,8 +44,12 @@ from kivy.core.window import Window
 from kivy.metrics import dp, sp
 from kivy.utils import get_color_from_hex
 from kivy.uix.anchorlayout import AnchorLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.properties import NumericProperty, ObjectProperty
+from kivy.animation import Animation
 
 import RNS
+import RNS.vendor.umsgpack as umsgpack
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 # Noderage Community Hub - public Reticulum transport relay
@@ -95,12 +99,35 @@ def hex3_to_rgba(h):
         return FG_COLOR
 
 
+def hex2_to_rgba(h):
+    """Convert a 2-char hex string (grayscale) to an RGBA 4-tuple (0-1 range)."""
+    try:
+        v = int(h, 16) / 255
+        return (v, v, v, 1)
+    except Exception:
+        return FG_COLOR
+
+
 def parse_micron(text):
     """
     Parse Micron markup and return a list of render elements.
 
+    Full Micron specification support:
+    - Headings: >H1, >>H2, >>>H3, < (reset section depth)
+    - Bold: `!text`!
+    - Italic: `*text`*
+    - Underline: `_text`_
+    - Colors: `Fxxx...`f (foreground), `Bxxx...`b (background), `gXX (grayscale)
+    - Alignment: `c (center), `l (left), `r (right), `a (reset alignment)
+    - Links: `[label`path] or `[`path]
+    - Dividers: --- or `-`
+    - Comments: # (except #! which is for cache headers)
+    - Literal mode: `=...`= (displays text without formatting)
+    - Escape: \\` for literal backtick
+    - Reset: `` (reset all formatting)
+
     Each element is a dict with keys:
-      type: "text" | "link" | "divider" | "blank"
+      type: "text" | "link" | "divider" | "blank" | "literal"
       For "text":
         segments: list of {"text":str, "bold":bool, "italic":bool,
                            "underline":bool, "fg":rgba, "bg":rgba}
@@ -111,20 +138,19 @@ def parse_micron(text):
         fg: rgba
       For "divider": (horizontal rule)
       For "blank": empty line
+      For "literal": raw text content
     """
     elements = []
 
-    # Strip cache-control header (#!c=X on first line)
-    lines = text.split("\n")
-    if lines and lines[0].strip().startswith("#!"):
-        lines = lines[1:]
-
+    # State variables
     cur_fg    = FG_COLOR
     cur_bg    = BG_COLOR
     cur_bold  = False
     cur_ital  = False
     cur_uline = False
     cur_align = "left"
+    in_literal = False
+    literal_buffer = []
 
     def reset_fmt():
         nonlocal cur_fg, cur_bg, cur_bold, cur_ital, cur_uline, cur_align
@@ -132,110 +158,118 @@ def parse_micron(text):
         cur_bg    = BG_COLOR
         cur_bold  = False
         cur_ital  = False
-        cur_uline = False
+        cur_uline  = False
         cur_align = "left"
 
-    for raw_line in lines:
-        line = raw_line.rstrip("\r")
-
-        # ── Section headers ──────────────────────────────────────────────
+    def process_inline_line(line):
+        """Process a single line for inline formatting and return elements."""
+        nonlocal cur_fg, cur_bg, cur_bold, cur_ital, cur_uline, cur_align
+        
+        # Section headers - also handle trailing < for section reset
         if line.startswith(">>>"):
-            elements.append({"type":"text","heading":3,"align":"left",
-                "segments":[{"text":line[3:].strip(),"bold":True,"italic":False,
-                              "underline":False,"fg":(0.7,0.9,1,1),"bg":BG_COLOR}]})
-            continue
+            text = line[3:].rstrip().rstrip("<").strip()
+            return [{"type":"text","heading":3,"align":"left",
+                "segments":[{"text":text,"bold":True,"italic":False,
+                              "underline":False,"fg":(0.7,0.9,1,1),"bg":BG_COLOR}]}]
         if line.startswith(">>"):
-            elements.append({"type":"text","heading":2,"align":"left",
-                "segments":[{"text":line[2:].strip(),"bold":True,"italic":False,
-                              "underline":False,"fg":(0.6,1,0.7,1),"bg":BG_COLOR}]})
-            continue
+            text = line[2:].rstrip().rstrip("<").strip()
+            return [{"type":"text","heading":2,"align":"left",
+                "segments":[{"text":text,"bold":True,"italic":False,
+                              "underline":False,"fg":(0.6,1,0.7,1),"bg":BG_COLOR}]}]
         if line.startswith(">"):
-            elements.append({"type":"text","heading":1,"align":"left",
-                "segments":[{"text":line[1:].strip(),"bold":True,"italic":False,
-                              "underline":False,"fg":(1,0.85,0.3,1),"bg":BG_COLOR}]})
-            continue
-
-        # ── Section depth reset ──────────────────────────────────────────
+            text = line[1:].rstrip().rstrip("<").strip()
+            return [{"type":"text","heading":1,"align":"left",
+                "segments":[{"text":text,"bold":True,"italic":False,
+                              "underline":False,"fg":(1,0.85,0.3,1),"bg":BG_COLOR}]}]
+        
+        # Section depth reset
         if line.strip() == "<":
-            continue
-
-        # ── Horizontal divider ───────────────────────────────────────────
-        if line.strip().startswith("---"):
-            elements.append({"type":"divider"})
-            continue
-
-        # ── Empty line ───────────────────────────────────────────────────
-        if line.strip() == "":
-            elements.append({"type":"blank"})
-            continue
-
-        # ── Inline markup tokeniser ──────────────────────────────────────
-        # We scan character by character for backtick sequences.
+            return []
+        
+        # Horizontal divider
+        stripped = line.strip()
+        if stripped.startswith("---") or stripped == "`-`":
+            return [{"type":"divider"}]
+        
+        # Empty line
+        if stripped == "":
+            return [{"type":"blank"}]
+        
+        # Comment lines
+        if line.startswith("#") and not line.startswith("#!"):
+            return []
+        
+        # Inline markup processing
         segments = []
-        links    = []          # collected link objects from this line
+        links = []
         i = 0
-        seg_fg    = cur_fg
-        seg_bg    = cur_bg
-        seg_bold  = cur_bold
-        seg_ital  = cur_ital
+        seg_fg = cur_fg
+        seg_bg = cur_bg
+        seg_bold = cur_bold
+        seg_ital = cur_ital
         seg_uline = cur_uline
         seg_align = cur_align
         buf = ""
 
-        def flush(b, _bold=False, _ital=False, _uline=False, _fg=FG_COLOR, _bg=BG_COLOR):
-            # Values are snapshotted at each call via default-arg trick to avoid
-            # the classic Python closure late-binding bug.
+        def flush(b, _bold=None, _ital=None, _uline=None, _fg=None, _bg=None):
+            if _bold is None: _bold = seg_bold
+            if _ital is None: _ital = seg_ital
+            if _uline is None: _uline = seg_uline
+            if _fg is None: _fg = seg_fg
+            if _bg is None: _bg = seg_bg
             if b:
-                segments.append({"text":b,
-                                  "bold":   _bold,
-                                  "italic": _ital,
-                                  "underline": _uline,
-                                  "fg":     _fg,
-                                  "bg":     _bg})
+                segments.append({"text":b, "bold":_bold, "italic":_ital,
+                                  "underline":_uline, "fg":_fg, "bg":_bg})
 
         while i < len(line):
             ch = line[i]
+
+            # Escape character
+            if ch == '\\' and i + 1 < len(line):
+                buf += line[i + 1]
+                i += 2
+                continue
 
             if ch != "`":
                 buf += ch
                 i += 1
                 continue
 
-            # Backtick – look ahead for escape type
             nxt = line[i+1] if i+1 < len(line) else ""
 
             # `` → reset all formatting
             if nxt == "`":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
-                seg_fg = FG_COLOR; seg_bg = BG_COLOR
-                seg_bold = seg_ital = seg_uline = False
+                flush(buf); buf = ""
+                reset_fmt()
+                seg_fg, seg_bg = cur_fg, cur_bg
+                seg_bold, seg_ital, seg_uline = cur_bold, cur_ital, cur_uline
                 i += 2
                 continue
 
-            # `! … `! bold
+            # `! … `! bold toggle
             if nxt == "!":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_bold = not seg_bold
                 i += 2
                 continue
 
-            # `* … `* italic
+            # `* … `* italic toggle
             if nxt == "*":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_ital = not seg_ital
                 i += 2
                 continue
 
-            # `_ … `_ underline
+            # `_ … `_ underline toggle
             if nxt == "_":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_uline = not seg_uline
                 i += 2
                 continue
 
-            # alignment: `c `l `r  followed by text then `a
+            # Alignment
             if nxt in ("c","l","r") and i+2 < len(line) and line[i+2] != "`":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_align = {"c":"center","l":"left","r":"right"}[nxt]
                 i += 2
                 continue
@@ -244,44 +278,48 @@ def parse_micron(text):
                 i += 2
                 continue
 
-            # Foreground colour: `Fxxx…`f
+            # Foreground colour
             if nxt == "F" and i+4 < len(line):
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_fg = hex3_to_rgba(line[i+2:i+5])
                 i += 5
                 continue
             if nxt == "f":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_fg = FG_COLOR
                 i += 2
                 continue
 
-            # Background colour: `Bxxx…`b
+            # Background colour
             if nxt == "B" and i+4 < len(line):
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_bg = hex3_to_rgba(line[i+2:i+5])
                 i += 5
                 continue
             if nxt == "b":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
+                flush(buf); buf = ""
                 seg_bg = BG_COLOR
                 i += 2
                 continue
 
-            # Link: `[label`path] OR `[`path]
+            # Grayscale
+            if nxt == "g" and i+3 < len(line):
+                flush(buf); buf = ""
+                seg_fg = hex2_to_rgba(line[i+2:i+4])
+                i += 4
+                continue
+
+            # Link
             if nxt == "[":
-                flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg); buf = ""
-                # find closing `
+                flush(buf); buf = ""
                 j = line.find("`", i+2)
                 if j == -1:
                     buf += ch; i += 1; continue
                 label_text = line[i+2:j]
-                # find closing ]
                 k = line.find("]", j+1)
                 if k == -1:
                     buf += ch; i += 1; continue
                 path = line[j+1:k]
-                # resolve node: path may be nodeaddr:path/to/page
                 node_addr = ""
                 page_path = path
                 if ":" in path and not path.startswith("/"):
@@ -291,37 +329,89 @@ def parse_micron(text):
                 if not label_text:
                     label_text = page_path
                 links.append({
-                    "type":"link",
-                    "label": label_text,
-                    "path":  page_path,
-                    "node":  node_addr,
-                    "fg":    LNK_COLOR,
+                    "type":"link", "label": label_text, "path": page_path,
+                    "node": node_addr, "fg": LNK_COLOR,
                 })
                 i = k+1
-                # skip trailing ` after ]
                 if i < len(line) and line[i] == "`":
                     i += 1
                 continue
 
-            # Unrecognised escape – emit literally
             buf += ch
             i += 1
 
-        flush(buf, seg_bold, seg_ital, seg_uline, seg_fg, seg_bg)
+        flush(buf)
 
         if links:
-            # Emit any text segments before the first link, then the links
+            result = []
             if segments:
-                elements.append({"type":"text","heading":0,
-                                  "align":seg_align,"segments":segments})
-            for lnk in links:
-                elements.append(lnk)
+                result.append({"type":"text","heading":0,"align":seg_align,"segments":segments})
+            result.extend(links)
+            return result
+        elif segments:
+            return [{"type":"text","heading":0,"align":seg_align,"segments":segments}]
         else:
-            if segments:
-                elements.append({"type":"text","heading":0,
-                                  "align":seg_align,"segments":segments})
+            return [{"type":"blank"}]
+
+    # Strip cache-control header
+    lines = text.split("\n")
+    if lines and lines[0].strip().startswith("#!"):
+        lines = lines[1:]
+
+    for raw_line in lines:
+        line = raw_line.rstrip("\r")
+
+        # Literal mode handling
+        if in_literal:
+            if "`=" in line:
+                idx = line.index("`=")
+                literal_buffer.append(line[:idx])
+                elements.append({
+                    "type": "literal",
+                    "content": "\n".join(literal_buffer)
+                })
+                literal_buffer = []
+                in_literal = False
+                # Process rest of line after literal end
+                remainder = line[idx+2:]
+                if remainder:
+                    elements.extend(process_inline_line(remainder))
             else:
-                elements.append({"type":"blank"})
+                literal_buffer.append(line)
+                continue
+        elif "`=" in line:
+            idx = line.index("`=")
+            before = line[:idx]
+            after = line[idx+2:]
+
+            if "`=" in after:
+                # Literal starts and ends on same line
+                end_idx = after.index("`=")
+                literal_content = after[:end_idx]
+                remainder = after[end_idx+2:]
+
+                if before:
+                    elements.extend(process_inline_line(before))
+                elements.append({"type": "literal", "content": literal_content})
+                if remainder:
+                    elements.extend(process_inline_line(remainder))
+                continue
+            else:
+                # Start multiline literal
+                if before:
+                    elements.extend(process_inline_line(before))
+                in_literal = True
+                literal_buffer = [after]
+                continue
+        else:
+            elements.extend(process_inline_line(line))
+
+    # Handle unclosed literal mode
+    if in_literal and literal_buffer:
+        elements.append({
+            "type": "literal",
+            "content": "\n".join(literal_buffer)
+        })
 
     return elements
 
@@ -331,11 +421,14 @@ def parse_micron(text):
 class ReticulumClient:
     """Manages the RNS instance and page fetching."""
 
-    def __init__(self):
+    def __init__(self, on_announce_callback=None):
         self.rns          = None
         self.identity     = None
         self._active_link = None
         self._lock        = threading.Lock()
+        self.on_announce_callback = on_announce_callback
+        self._announced_nodes = {}  # hash -> {name, timestamp, capabilities}
+        self._announce_dest = None
 
     def start(self, hub_host=NODERAGE_HOST, hub_port=NODERAGE_PORT):
         """Initialise Reticulum with a TCPClientInterface to Noderage hub."""
@@ -361,7 +454,74 @@ class ReticulumClient:
 
         self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_DEBUG)
         self.identity = RNS.Identity()
+        
+        # Create destination for receiving announces
+        self._announce_dest = RNS.Destination(
+            self.identity,
+            RNS.Destination.IN,
+            RNS.Destination.GROUP,
+            "nomadnetwork",
+            "announce"
+        )
+        self._announce_dest.set_announce_handler(self._handle_announce)
+        
+        # Send our own announce after connection
+        self._send_announce()
+        
         RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
+
+    def _send_announce(self):
+        """Send an announce to let other nodes know we're here."""
+        try:
+            announce_data = {
+                "type": "browser",
+                "name": "RetiBrowser",
+                "timestamp": int(time.time()),
+                "capabilities": ["browsing"],
+            }
+            # Announce to the nomadnetwork page destination group
+            RNS.Destination.announce(
+                None,  # No specific identity
+                "nomadnetwork",
+                "page",
+                umsgpack.packb(announce_data),
+                None,
+                None
+            )
+            RNS.log("RetiBrowser: Sent announce", RNS.LOG_NOTICE)
+        except Exception as e:
+            RNS.log(f"RetiBrowser: Failed to send announce: {e}", RNS.LOG_ERROR)
+
+    def _handle_announce(self, path, data, request_id, remote_identity, context):
+        """Handle incoming announces from other nodes."""
+        try:
+            if remote_identity:
+                node_hash = RNS.hexrep(remote_identity.hash, delimit=False)
+                try:
+                    info = umsgpack.unpackb(data) if data else {}
+                    self._announced_nodes[node_hash] = {
+                        "hash": node_hash,
+                        "name": info.get("name", "Unknown Node"),
+                        "timestamp": info.get("timestamp", time.time()),
+                        "capabilities": info.get("capabilities", []),
+                        "type": info.get("type", "unknown"),
+                    }
+                    RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}...", RNS.LOG_NOTICE)
+                    
+                    # Callback to update UI
+                    if self.on_announce_callback:
+                        Clock.schedule_once(
+                            lambda dt: self.on_announce_callback(self._announced_nodes[node_hash]),
+                            0
+                        )
+                except Exception as e:
+                    RNS.log(f"RetiBrowser: Error parsing announce: {e}", RNS.LOG_ERROR)
+        except Exception as e:
+            RNS.log(f"RetiBrowser: Error in announce handler: {e}", RNS.LOG_ERROR)
+
+    def get_announced_nodes(self):
+        """Return list of nodes we've heard announces from."""
+        return list(self._announced_nodes.values())
 
     def _build_config(self, hub_host, hub_port):
         return f"""[reticulum]
@@ -594,18 +754,240 @@ class ReticulumClient:
 
 # ─── UI Widgets ───────────────────────────────────────────────────────────────
 
+class NodeDrawer(BoxLayout):
+    """Slide-out drawer showing announced nodes."""
+    
+    def __init__(self, on_node_select, **kwargs):
+        super().__init__(orientation="vertical", **kwargs)
+        self.on_node_select = on_node_select
+        self.size_hint_x = None
+        self.width = dp(280)
+        
+        # Header
+        header = BoxLayout(size_hint_y=None, height=dp(56))
+        with header.canvas.before:
+            Color(*NAV_COLOR)
+            header._bg = Rectangle(pos=header.pos, size=header.size)
+        header.bind(pos=lambda i, v: setattr(i._bg, 'pos', v),
+                    size=lambda i, v: setattr(i._bg, 'size', v))
+        
+        title = Label(
+            text="Discovered Nodes",
+            halign="left",
+            valign="middle",
+            font_size=sp(18),
+            bold=True,
+        )
+        title.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
+        header.add_widget(title)
+        
+        # Close button
+        close_btn = Button(
+            text="✕",
+            size_hint_x=None,
+            width=dp(44),
+            background_normal="",
+            background_down="",
+            background_color=(0, 0, 0, 0),
+            color=FG_COLOR,
+            font_size=sp(24),
+        )
+        close_btn.bind(on_press=self._close)
+        header.add_widget(close_btn)
+        
+        self.add_widget(header)
+        
+        # Scrollable node list
+        self._scroll = ScrollView(do_scroll_x=False)
+        self._node_list = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            spacing=dp(2),
+            padding=dp(4),
+        )
+        self._node_list.bind(minimum_height=self._node_list.setter('height'))
+        self._scroll.add_widget(self._node_list)
+        self.add_widget(self._scroll)
+        
+        # Track displayed nodes
+        self._displayed_hashes = set()
+        
+        with self.canvas.before:
+            Color(*BG_COLOR)
+            self._bg = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._upd_bg, size=self._upd_bg)
+    
+    def _upd_bg(self, *_):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
+    
+    def _close(self, *_):
+        """Request drawer close via parent."""
+        if hasattr(self, 'parent') and hasattr(self.parent, 'toggle_drawer'):
+            self.parent.toggle_drawer()
+    
+    def add_node(self, node_info):
+        """Add a node to the list if not already displayed."""
+        node_hash = node_info.get("hash", "")
+        if node_hash in self._displayed_hashes:
+            return
+        
+        self._displayed_hashes.add(node_hash)
+        
+        # Create node card
+        card = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            height=dp(72),
+            padding=dp(8),
+        )
+        with card.canvas.before:
+            Color(0.12, 0.15, 0.20, 1)
+            card._bg = Rectangle(pos=card.pos, size=card.size)
+        card.bind(pos=lambda i, v: setattr(i._bg, 'pos', v),
+                  size=lambda i, v: setattr(i._bg, 'size', v))
+        
+        # Node name
+        name = node_info.get("name", "Unknown Node")
+        name_lbl = Label(
+            text=name,
+            halign="left",
+            valign="middle",
+            font_size=sp(14),
+            bold=True,
+            color=FG_COLOR,
+        )
+        name_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
+        
+        # Node hash (shortened)
+        hash_lbl = Label(
+            text=f"{node_hash[:16]}...",
+            halign="left",
+            valign="top",
+            font_size=sp(10),
+            color=(0.6, 0.6, 0.6, 1),
+        )
+        hash_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
+        
+        info_layout = BoxLayout(orientation="vertical")
+        info_layout.add_widget(name_lbl)
+        info_layout.add_widget(hash_lbl)
+        
+        # Navigate button
+        nav_btn = Button(
+            text="Navigate →",
+            size_hint_x=None,
+            width=dp(100),
+            background_normal="",
+            background_down="",
+            background_color=BTN_COLOR,
+            color=LNK_COLOR,
+            font_size=sp(12),
+        )
+        nav_btn.bind(on_press=lambda i, h=node_hash: self._on_navigate(h))
+        
+        card.add_widget(info_layout)
+        card.add_widget(nav_btn)
+        
+        self._node_list.add_widget(card)
+    
+    def _on_navigate(self, node_hash):
+        """Navigate to selected node."""
+        if self.on_node_select:
+            self.on_node_select(node_hash)
+            self._close()
+    
+    def clear_nodes(self):
+        """Clear all displayed nodes."""
+        self._node_list.clear_widgets()
+        self._displayed_hashes.clear()
+
+
+class NavigationDrawer(BoxLayout):
+    """Container that manages the slide-out drawer."""
+    
+    def __init__(self, content, drawer, **kwargs):
+        super().__init__(**kwargs)
+        self.drawer = drawer
+        self.drawer_open = False
+        self._touch_start_x = None
+        
+        # Add drawer (will be positioned off-screen)
+        self.add_widget(drawer)
+        self.add_widget(content)
+        
+        # Initial drawer position
+        self.drawer.pos = (-self.drawer.width, 0)
+        self.drawer.size_hint_x = None
+        
+        self.bind(size=self._update_positions)
+    
+    def _update_positions(self, *_):
+        """Update drawer position when window resizes."""
+        if not self.drawer_open:
+            self.drawer.pos = (-self.drawer.width, 0)
+    
+    def toggle_drawer(self):
+        """Open or close the drawer with animation."""
+        if self.drawer_open:
+            self._close_drawer()
+        else:
+            self._open_drawer()
+    
+    def _open_drawer(self):
+        """Animate drawer open."""
+        self.drawer_open = True
+        anim = Animation(pos=(0, 0), duration=0.25)
+        anim.start(self.drawer)
+    
+    def _close_drawer(self):
+        """Animate drawer closed."""
+        self.drawer_open = False
+        anim = Animation(pos=(-self.drawer.width, 0), duration=0.25)
+        anim.start(self.drawer)
+    
+    def on_touch_down(self, touch):
+        """Track touch for swipe gesture."""
+        self._touch_start_x = touch.x
+        return super().on_touch_down(touch)
+    
+    def on_touch_up(self, touch):
+        """Detect swipe gesture."""
+        if self._touch_start_x is not None:
+            dx = touch.x - self._touch_start_x
+            
+            # Swipe right to open (from left edge)
+            if dx > dp(50) and self._touch_start_x < dp(30):
+                if not self.drawer_open:
+                    self._open_drawer()
+            
+            # Swipe left to close (when drawer is open)
+            elif dx < -dp(50) and self.drawer_open:
+                self._close_drawer()
+            
+            # Tap outside drawer to close
+            elif self.drawer_open and touch.x > self.drawer.width:
+                self._close_drawer()
+        
+        self._touch_start_x = None
+        return super().on_touch_up(touch)
+
+
 class IconButton(Button):
-    """A flat icon-style button."""
+    """A flat icon-style button using Unicode symbols."""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.background_normal  = ""
         self.background_down    = ""
         self.background_color   = BTN_COLOR
         self.color              = FG_COLOR
-        self.font_size          = sp(16)
+        self.font_size          = sp(20)
         self.size_hint_x        = None
         self.width              = dp(48)
-        self.bold               = True
+        self.bold               = False
+        # Use a font that supports Unicode arrow/symbol glyphs
+        # Roboto is standard on Android, DejaVuSans on Linux
+        self.font_name = 'Roboto'
 
 
 class AddressBar(BoxLayout):
@@ -809,6 +1191,28 @@ class PageView(ScrollView):
                 lbl.text_size = (self.width - dp(24), None)
                 self.container.add_widget(lbl)
 
+            elif etype == "literal":
+                # Render literal/preformatted text (no markup processing)
+                content = el.get("content", "")
+                # Escape markup characters for literal display
+                safe_text = content.replace("[", "[[").replace("]", "]]")
+                lbl = Label(
+                    text=safe_text,
+                    markup=True,  # Still use markup to escape [[ ]]
+                    font_size=sp(12),
+                    halign="left",
+                    valign="top",
+                    size_hint_y=None,
+                    color=(0.7, 0.7, 0.7, 1),  # Dimmer color for literal text
+                    font_name="monospace",  # Use monospace font if available
+                )
+                lbl.bind(
+                    width=lambda inst, w: setattr(inst, 'text_size', (w, None)),
+                    texture_size=lambda inst, ts: setattr(inst, 'height', ts[1] + dp(2))
+                )
+                lbl.text_size = (self.width - dp(24), None)
+                self.container.add_widget(lbl)
+
     @mainthread
     def show_status(self, msg, color=FG_COLOR):
         self.container.clear_widgets()
@@ -839,20 +1243,33 @@ class RetiBrowserApp(App):
             self._hist_pos     = -1
             self._current_node = DEFAULT_NODE
 
-            # Reticulum client
+            # Reticulum client with announce callback
             log("Creating ReticulumClient...")
-            self._rns = ReticulumClient()
+            self._rns = ReticulumClient(on_announce_callback=self._on_announce_received)
 
-            # Root layout
-            log("Creating root layout...")
-            root = BoxLayout(orientation="vertical")
+            # Create node drawer
+            log("Creating node drawer...")
+            self._node_drawer = NodeDrawer(on_node_select=self._navigate_to_node)
 
-            # Address / nav bar
+            # Main content layout
+            log("Creating main content...")
+            main_content = BoxLayout(orientation="vertical")
+
+            # Address / nav bar - add menu button
             log("Creating address bar...")
             self._addrbar = AddressBar(on_navigate=self._navigate_url)
             self._addrbar.back_btn.bind(on_press=self._go_back)
             self._addrbar.fwd_btn.bind(on_press=self._go_forward)
             self._addrbar.refresh_btn.bind(on_press=self._refresh)
+            
+            # Add menu button to open drawer
+            menu_btn = IconButton(
+                text="☰",
+                width=dp(44),
+                font_size=sp(24),
+            )
+            menu_btn.bind(on_press=lambda *_: self._toggle_drawer())
+            self._addrbar.add_widget(menu_btn, index=0)
 
             # Page view
             log("Creating page view...")
@@ -862,21 +1279,53 @@ class RetiBrowserApp(App):
             log("Creating status bar...")
             self._statusbar = StatusBar(text="  Initialising Reticulum…")
 
-            log("Adding widgets to root...")
-            root.add_widget(self._addrbar)
-            root.add_widget(self._pageview)
-            root.add_widget(self._statusbar)
+            log("Adding widgets to main content...")
+            main_content.add_widget(self._addrbar)
+            main_content.add_widget(self._pageview)
+            main_content.add_widget(self._statusbar)
+
+            # Wrap in navigation drawer container
+            log("Creating navigation drawer container...")
+            self._nav_drawer = NavigationDrawer(
+                content=main_content,
+                drawer=self._node_drawer,
+            )
 
             # Start Reticulum on main thread (required for signals), then load default page
             log("Scheduling Reticulum init...")
             Clock.schedule_once(self._init_rns_main, 0.5)
 
             log("App build() complete, returning root")
-            return root
+            return self._nav_drawer
         except Exception as e:
             log(f"Build error: {e}")
             log(traceback.format_exc())
             raise
+
+    def _toggle_drawer(self):
+        """Toggle the navigation drawer."""
+        self._nav_drawer.toggle_drawer()
+
+    def _on_announce_received(self, node_info):
+        """Called when a node announce is received."""
+        log(f"Announce received: {node_info.get('name', 'Unknown')} ({node_info.get('hash', '')[:8]}...)")
+        self._node_drawer.add_node(node_info)
+        
+        # Also load any existing nodes from RNS
+        Clock.schedule_once(self._load_existing_nodes, 0.5)
+    
+    def _load_existing_nodes(self, dt=None):
+        """Load existing announced nodes from RNS."""
+        try:
+            nodes = self._rns.get_announced_nodes()
+            for node in nodes:
+                self._node_drawer.add_node(node)
+        except Exception as e:
+            log(f"Error loading existing nodes: {e}")
+
+    def _navigate_to_node(self, node_hash):
+        """Navigate to a selected node from the drawer."""
+        self._load_page(node_hash, DEFAULT_PAGE, push_history=True)
 
     # ── Reticulum init ────────────────────────────────────────────────────────
 
