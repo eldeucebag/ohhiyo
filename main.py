@@ -448,15 +448,27 @@ class AnnounceHandler:
                         info = {"name": f"Node {node_hash[:8]}", "type": "unknown"}
                     else:
                         info = {}
+
+                    # Extract name with fallback
+                    extracted_name = None
+                    if isinstance(info, dict):
+                        extracted_name = info.get("name")
+                        if not extracted_name:
+                            # Try alternative fields
+                            extracted_name = info.get("title") or info.get("display_name")
+                    
+                    if not extracted_name:
+                        extracted_name = f"Node {node_hash[:8]}"
                     
                     self._announced_nodes[node_hash] = {
                         "hash": node_hash,
-                        "name": info.get("name", f"Node {node_hash[:8]}") if isinstance(info, dict) else f"Node {node_hash[:8]}",
+                        "name": extracted_name,
                         "timestamp": info.get("timestamp", time.time()) if isinstance(info, dict) else time.time(),
                         "capabilities": info.get("capabilities", []) if isinstance(info, dict) else [],
                         "type": info.get("type", "unknown") if isinstance(info, dict) else "unknown",
                     }
                     RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}... ({self._announced_nodes[node_hash]['name']})", RNS.LOG_NOTICE)
+                    log(f"Announce stored: name={extracted_name}, hash={node_hash[:8]}..., raw_info={info}")
 
                     # Callback to update UI
                     if self.on_announce_callback:
@@ -601,18 +613,23 @@ class ReticulumClient:
             def _step_identity(dest_hash):
                 """Called once path is confirmed to exist."""
                 identity = RNS.Identity.recall(dest_hash)
+                node_hex_display = RNS.hexrep(dest_hash, delimit=False)[:8]
                 if not identity:
                     fail(
                         f"[FAIL] Identity not in announce table after path resolved.\n"
-                        f"  Node: {node_hex}\n"
+                        f"  Node: {node_hex_display}...\n"
                         f"  Is pagenode announcing? Check server log for "
                         f"'Sent announce' lines."
                     )
                     return
-                status(f"Identity recalled: {RNS.hexrep(identity.hash, delimit=False)[:8]}…")
-                _step_open_link(identity)
+                identity_hash = RNS.hexrep(identity.hash, delimit=False)
+                status(f"Identity recalled: {identity_hash[:8]}… for node {node_hex_display}...")
+                # Verify identity hash matches the destination hash we're connecting to
+                if identity_hash != RNS.hexrep(dest_hash, delimit=False):
+                    log(f"[WARN] Identity hash mismatch! Expected {node_hex_display}, got {identity_hash[:8]}")
+                _step_open_link(identity, dest_hash)
 
-            def _step_open_link(identity):
+            def _step_open_link(identity, dest_hash):
                 """Open an encrypted RNS Link to the destination."""
                 destination = RNS.Destination(
                     identity,
@@ -621,7 +638,8 @@ class ReticulumClient:
                     "nomadnetwork",
                     "page",
                 )
-                status(f"Opening link to {RNS.hexrep(destination.hash, delimit=False)[:8]}…")
+                dest_hash_hex = RNS.hexrep(dest_hash, delimit=False)
+                status(f"Opening link to {dest_hash_hex[:8]}… (identity: {RNS.hexrep(identity.hash, delimit=False)[:8]}…)")
 
                 # Timeout: schedule a Clock callback that fires if link never opens
                 timeout_trigger = [None]
@@ -868,6 +886,7 @@ class NodeDrawer(BoxLayout):
         
         # Node name
         name = node_info.get("name", "Unknown Node")
+        log(f"Adding node to UI: {name} ({node_hash[:8]}...)")
         name_lbl = Label(
             text=name,
             halign="left",
@@ -875,9 +894,10 @@ class NodeDrawer(BoxLayout):
             font_size=sp(14),
             bold=True,
             color=FG_COLOR,
+            font_name="Roboto",
         )
         name_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
-        
+
         # Node hash (shortened)
         hash_lbl = Label(
             text=f"{node_hash[:16]}...",
@@ -885,6 +905,7 @@ class NodeDrawer(BoxLayout):
             valign="top",
             font_size=sp(10),
             color=(0.6, 0.6, 0.6, 1),
+            font_name="Roboto",
         )
         hash_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
         
