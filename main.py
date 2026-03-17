@@ -434,16 +434,26 @@ class AnnounceHandler:
                 # destination_hash matches DEFAULT_NODE; announced_identity.hash does not
                 node_hash = RNS.hexrep(destination_hash, delimit=False)
                 try:
-                    info = umsgpack.unpackb(app_data) if app_data else {}
+                    # app_data might be bytes (needs unpacking) or already unpacked
+                    if isinstance(app_data, bytes):
+                        info = umsgpack.unpackb(app_data)
+                    elif isinstance(app_data, dict):
+                        info = app_data
+                    elif isinstance(app_data, list):
+                        # Some announces come as lists - extract what we can
+                        info = {"name": f"Node {node_hash[:8]}", "type": "unknown"}
+                    else:
+                        info = {}
+                    
                     self._announced_nodes[node_hash] = {
                         "hash": node_hash,
-                        "name": info.get("name", "Unknown Node"),
-                        "timestamp": info.get("timestamp", time.time()),
-                        "capabilities": info.get("capabilities", []),
-                        "type": info.get("type", "unknown"),
+                        "name": info.get("name", f"Node {node_hash[:8]}") if isinstance(info, dict) else f"Node {node_hash[:8]}",
+                        "timestamp": info.get("timestamp", time.time()) if isinstance(info, dict) else time.time(),
+                        "capabilities": info.get("capabilities", []) if isinstance(info, dict) else [],
+                        "type": info.get("type", "unknown") if isinstance(info, dict) else "unknown",
                     }
-                    RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}...", RNS.LOG_NOTICE)
-                    
+                    RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}... ({self._announced_nodes[node_hash]['name']})", RNS.LOG_NOTICE)
+
                     # Callback to update UI
                     if self.on_announce_callback:
                         Clock.schedule_once(
@@ -451,7 +461,7 @@ class AnnounceHandler:
                             0
                         )
                 except Exception as e:
-                    RNS.log(f"RetiBrowser: Error parsing announce: {e}", RNS.LOG_ERROR)
+                    RNS.log(f"RetiBrowser: Error parsing announce data: {e}", RNS.LOG_ERROR)
         except Exception as e:
             RNS.log(f"RetiBrowser: Error in announce handler: {e}", RNS.LOG_ERROR)
     
