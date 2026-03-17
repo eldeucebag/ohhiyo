@@ -48,11 +48,15 @@ from kivy.uix.anchorlayout import AnchorLayout
 import RNS
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-YGGDRASIL_PEER   = "200:a468:59c6:5b39:8f9a:ae3c:7940:2aa0"
-DEFAULT_NODE     = "f97f412b9ef6d1c2330ca5ee28ee9e31"
+# Server configuration - update SERVER_HOST to your server's IP address
+# For local WiFi testing: use your server's local IP (e.g., 192.168.x.x)
+# For remote access: use your public IP (UPnP auto-forwards port 4965)
+SERVER_HOST      = "167.100.58.227"  # Your server's public IP
+SERVER_PORT      = 4965              # RNS TCP port
+DEFAULT_NODE     = "f97f412b9ef6d1c2330ca5ee28ee9e31"  # Server's RNS destination hash
 DEFAULT_PAGE     = "/page/index.mu"
-PAGE_TIMEOUT     = 30          # seconds to wait for a page response
-LINK_TIMEOUT     = 15          # seconds to establish a link
+PAGE_TIMEOUT     = 30                # seconds to wait for a page response
+LINK_TIMEOUT     = 15                # seconds to establish a link
 
 # Micron colour palette (3-hex → kivy rgba)
 MICRON_COLORS = {
@@ -333,9 +337,9 @@ class ReticulumClient:
         self._active_link = None
         self._lock        = threading.Lock()
 
-    def start(self, yggdrasil_peer=YGGDRASIL_PEER):
-        """Initialise Reticulum with a Yggdrasil interface to the community hub."""
-        config = self._build_config(yggdrasil_peer)
+    def start(self, server_host=SERVER_HOST, server_port=SERVER_PORT):
+        """Initialise Reticulum with a TCPClientInterface to the community hub."""
+        config = self._build_config(server_host, server_port)
 
         # Determine a writable path for configuration.
         # On Android, home (~) might be /data or / which is read-only for apps.
@@ -359,7 +363,7 @@ class ReticulumClient:
         self.identity = RNS.Identity()
         RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
 
-    def _build_config(self, ygg_peer):
+    def _build_config(self, server_host, server_port):
         return f"""[reticulum]
   enable_transport = Yes
   share_instance   = No
@@ -367,11 +371,11 @@ class ReticulumClient:
 
 [interfaces]
 
-  [[RetiBrowser Yggdrasil Hub]]
+  [[Community Hub TCP]]
     type        = TCPClientInterface
     enabled     = yes
-    target_host = {ygg_peer}
-    target_port = 4965
+    target_host = {server_host}
+    target_port = {server_port}
 """
 
     def fetch_page(self, node_hex, page_path, on_done, on_error, on_progress=None):
@@ -423,10 +427,10 @@ class ReticulumClient:
                         on_error(
                             f"[FAIL] Path not found after {LINK_TIMEOUT}s\n"
                             f"  Node: {node_hex}\n"
-                            f"  Peer: {YGGDRASIL_PEER}:4965\n"
+                            f"  Server: {SERVER_HOST}:{SERVER_PORT}\n"
                             f"  Interfaces up: {len(interfaces)}\n"
                             f"  Check: is rnsd running on server? "
-                            f"Can Android reach {YGGDRASIL_PEER}?"
+                            f"Can Android reach {SERVER_HOST}?"
                         )
                         return
                     time.sleep(0.25)
@@ -874,8 +878,8 @@ class RetiBrowserApp(App):
     def _init_rns_main(self, dt=None):
         try:
             log("Starting Reticulum initialization on main thread...")
-            self._set_status("Connecting to Reticulum via Yggdrasil…")
-            self._rns.start(YGGDRASIL_PEER)
+            self._set_status(f"Connecting to Community Hub at {SERVER_HOST}:{SERVER_PORT}…")
+            self._rns.start(SERVER_HOST, SERVER_PORT)
             log("Reticulum started successfully")
             self._set_status("Connected – settling interface…")
 
