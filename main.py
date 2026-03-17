@@ -454,20 +454,14 @@ class ReticulumClient:
 
         self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_DEBUG)
         self.identity = RNS.Identity()
-        
-        # Create destination for receiving announces
-        self._announce_dest = RNS.Destination(
-            self.identity,
-            RNS.Destination.IN,
-            RNS.Destination.GROUP,
-            "nomadnetwork",
-            "announce"
-        )
-        self._announce_dest.set_announce_handler(self._handle_announce)
-        
+
+        # Set up announce handling via RNS.Transport
+        # RNS automatically delivers announces to all destinations matching the aspect
+        RNS.Transport.register_announce_handler(["nomadnetwork"], self._handle_announce)
+
         # Send our own announce after connection
         self._send_announce()
-        
+
         RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
 
     def _send_announce(self):
@@ -755,13 +749,14 @@ class ReticulumClient:
 # ─── UI Widgets ───────────────────────────────────────────────────────────────
 
 class NodeDrawer(BoxLayout):
-    """Slide-out drawer showing announced nodes."""
+    """Slide-out drawer showing announced nodes (overlay)."""
     
     def __init__(self, on_node_select, **kwargs):
         super().__init__(orientation="vertical", **kwargs)
         self.on_node_select = on_node_select
-        self.size_hint_x = None
+        self.size_hint = (None, None)
         self.width = dp(280)
+        self.height = Window.height
         
         # Header
         header = BoxLayout(size_hint_y=None, height=dp(56))
@@ -812,10 +807,21 @@ class NodeDrawer(BoxLayout):
         # Track displayed nodes
         self._displayed_hashes = set()
         
+        # Semi-transparent background overlay
+        self._overlay_color = Color(0, 0, 0, 0)
+        self._overlay_rect = None
+        
         with self.canvas.before:
             Color(*BG_COLOR)
             self._bg = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._upd_bg, size=self._upd_bg)
+        
+        # Bind to window height changes
+        Window.bind(size=self._on_window_resize)
+    
+    def _on_window_resize(self, window, size):
+        """Update drawer height when window resizes."""
+        self.height = size[1]
     
     def _upd_bg(self, *_):
         self._bg.pos = self.pos
@@ -903,29 +909,29 @@ class NodeDrawer(BoxLayout):
         self._displayed_hashes.clear()
 
 
-class NavigationDrawer(BoxLayout):
-    """Container that manages the slide-out drawer."""
+class NavigationDrawer(FloatLayout):
+    """FloatLayout container that manages the slide-out drawer as an overlay."""
     
     def __init__(self, content, drawer, **kwargs):
         super().__init__(**kwargs)
+        self.content_widget = content
         self.drawer = drawer
         self.drawer_open = False
         self._touch_start_x = None
         
-        # Add drawer (will be positioned off-screen)
-        self.add_widget(drawer)
-        self.add_widget(content)
+        # Add content first (background)
+        self.add_widget(self.content_widget)
+        # Add drawer on top (will be positioned off-screen)
+        self.add_widget(self.drawer)
         
-        # Initial drawer position
-        self.drawer.pos = (-self.drawer.width, 0)
-        self.drawer.size_hint_x = None
-        
-        self.bind(size=self._update_positions)
+        # Initial drawer position (off-screen left)
+        Clock.schedule_once(self._init_positions, 0.1)
     
-    def _update_positions(self, *_):
-        """Update drawer position when window resizes."""
-        if not self.drawer_open:
-            self.drawer.pos = (-self.drawer.width, 0)
+    def _init_positions(self, dt=None):
+        """Initialize drawer position after layout is ready."""
+        self.drawer.pos = (-self.drawer.width, 0)
+        self.drawer.size_hint = (None, None)
+        self.drawer.height = self.height
     
     def toggle_drawer(self):
         """Open or close the drawer with animation."""
@@ -935,8 +941,9 @@ class NavigationDrawer(BoxLayout):
             self._open_drawer()
     
     def _open_drawer(self):
-        """Animate drawer open."""
+        """Animate drawer open (overlay, doesn't resize content)."""
         self.drawer_open = True
+        self.drawer.height = self.height
         anim = Animation(pos=(0, 0), duration=0.25)
         anim.start(self.drawer)
     
@@ -971,6 +978,11 @@ class NavigationDrawer(BoxLayout):
         
         self._touch_start_x = None
         return super().on_touch_up(touch)
+    
+    def on_size(self, instance, value):
+        """Update drawer height when container resizes."""
+        if hasattr(self, 'drawer'):
+            self.drawer.height = self.height
 
 
 class IconButton(Button):
