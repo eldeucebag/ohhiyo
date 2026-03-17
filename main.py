@@ -1000,9 +1000,9 @@ class NavigationDrawer(FloatLayout):
 
 class IconButton(Button):
     """A flat icon-style button using Unicode symbols.
-    
-    Uses system font with Unicode fallback. On Android, Roboto provides
-    excellent Unicode glyph coverage including arrows and symbols.
+
+    Uses Roboto font which provides excellent Unicode glyph coverage
+    including arrows and symbols on Android.
     """
     def __init__(self, **kwargs):
         # Set defaults before calling super() so passed kwargs can override
@@ -1014,7 +1014,7 @@ class IconButton(Button):
         kwargs.setdefault('size_hint_x', None)
         kwargs.setdefault('width', dp(52))
         kwargs.setdefault('bold', False)
-        # Don't set font_name - let Kivy use its default system font
+        kwargs.setdefault('font_name', 'Roboto')  # Android system font with Unicode support
         kwargs.setdefault('halign', 'center')
         kwargs.setdefault('valign', 'middle')
         kwargs.setdefault('markup', False)
