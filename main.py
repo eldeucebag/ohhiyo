@@ -525,9 +525,14 @@ class ReticulumClient:
                 status(f"Request failed callback: status={receipt.status}")
                 request_error.set()
 
+            # Send path prefix as RNS path, full path in data payload
+            import RNS.vendor.umsgpack as umsgpack
+            path_prefix = page_path.split('/')[1] if '/' in page_path else 'page'
+            request_data = umsgpack.packb({"path": page_path})
+
             self._active_link.request(
-                page_path,
-                data              = None,
+                "/" + path_prefix,
+                data              = request_data,
                 response_callback = response_received,
                 failed_callback   = request_failed,
                 progress_callback = progress_updated,
