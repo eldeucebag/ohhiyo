@@ -418,6 +418,47 @@ def parse_micron(text):
 
 # ─── Reticulum Network Layer ──────────────────────────────────────────────────
 
+class AnnounceHandler:
+    """Handler for RNS announce messages."""
+    
+    def __init__(self, on_announce_callback=None):
+        self.on_announce_callback = on_announce_callback
+        self._announced_nodes = {}
+        # Accept announces from nomadnetwork aspect
+        self.aspect_filter = "nomadnetwork"
+    
+    def received_announce(self, destination_hash, announced_identity, app_data, announce_packet_hash=None, is_path_response=False):
+        """Called when an announce is received."""
+        try:
+            if announced_identity:
+                node_hash = RNS.hexrep(announced_identity.hash, delimit=False)
+                try:
+                    info = umsgpack.unpackb(app_data) if app_data else {}
+                    self._announced_nodes[node_hash] = {
+                        "hash": node_hash,
+                        "name": info.get("name", "Unknown Node"),
+                        "timestamp": info.get("timestamp", time.time()),
+                        "capabilities": info.get("capabilities", []),
+                        "type": info.get("type", "unknown"),
+                    }
+                    RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}...", RNS.LOG_NOTICE)
+                    
+                    # Callback to update UI
+                    if self.on_announce_callback:
+                        Clock.schedule_once(
+                            lambda dt: self.on_announce_callback(self._announced_nodes[node_hash]),
+                            0
+                        )
+                except Exception as e:
+                    RNS.log(f"RetiBrowser: Error parsing announce: {e}", RNS.LOG_ERROR)
+        except Exception as e:
+            RNS.log(f"RetiBrowser: Error in announce handler: {e}", RNS.LOG_ERROR)
+    
+    def get_announced_nodes(self):
+        """Return list of nodes we've heard announces from."""
+        return list(self._announced_nodes.values())
+
+
 class ReticulumClient:
     """Manages the RNS instance and page fetching."""
 
@@ -427,8 +468,7 @@ class ReticulumClient:
         self._active_link = None
         self._lock        = threading.Lock()
         self.on_announce_callback = on_announce_callback
-        self._announced_nodes = {}  # hash -> {name, timestamp, capabilities}
-        self._announce_dest = None
+        self.announce_handler = AnnounceHandler(on_announce_callback)
 
     def start(self, hub_host=NODERAGE_HOST, hub_port=NODERAGE_PORT):
         """Initialise Reticulum with a TCPClientInterface to Noderage hub."""
@@ -455,9 +495,8 @@ class ReticulumClient:
         self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_DEBUG)
         self.identity = RNS.Identity()
 
-        # Set up announce handling via RNS.Transport
-        # RNS automatically delivers announces to all destinations matching the aspect
-        RNS.Transport.register_announce_handler(["nomadnetwork"], self._handle_announce)
+        # Register announce handler
+        RNS.Transport.register_announce_handler(self.announce_handler)
 
         # Send our own announce after connection
         self._send_announce()
@@ -486,36 +525,9 @@ class ReticulumClient:
         except Exception as e:
             RNS.log(f"RetiBrowser: Failed to send announce: {e}", RNS.LOG_ERROR)
 
-    def _handle_announce(self, path, data, request_id, remote_identity, context):
-        """Handle incoming announces from other nodes."""
-        try:
-            if remote_identity:
-                node_hash = RNS.hexrep(remote_identity.hash, delimit=False)
-                try:
-                    info = umsgpack.unpackb(data) if data else {}
-                    self._announced_nodes[node_hash] = {
-                        "hash": node_hash,
-                        "name": info.get("name", "Unknown Node"),
-                        "timestamp": info.get("timestamp", time.time()),
-                        "capabilities": info.get("capabilities", []),
-                        "type": info.get("type", "unknown"),
-                    }
-                    RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}...", RNS.LOG_NOTICE)
-                    
-                    # Callback to update UI
-                    if self.on_announce_callback:
-                        Clock.schedule_once(
-                            lambda dt: self.on_announce_callback(self._announced_nodes[node_hash]),
-                            0
-                        )
-                except Exception as e:
-                    RNS.log(f"RetiBrowser: Error parsing announce: {e}", RNS.LOG_ERROR)
-        except Exception as e:
-            RNS.log(f"RetiBrowser: Error in announce handler: {e}", RNS.LOG_ERROR)
-
     def get_announced_nodes(self):
         """Return list of nodes we've heard announces from."""
-        return list(self._announced_nodes.values())
+        return self.announce_handler.get_announced_nodes()
 
     def _build_config(self, hub_host, hub_port):
         return f"""[reticulum]
