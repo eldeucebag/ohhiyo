@@ -354,7 +354,7 @@ class ReticulumClient:
         with open(os.path.join(config_path, "config"), "w") as f:
             f.write(config)
 
-        self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_WARNING)
+        self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_DEBUG)
         self.identity = RNS.Identity()
         RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
 
@@ -388,35 +388,76 @@ class ReticulumClient:
         t.start()
 
     def _fetch_thread(self, node_hex, page_path, on_done, on_error, on_progress):
+        """
+        Fetch a page with verbose diagnostic status updates at every step.
+        on_progress is repurposed here to push status strings to the UI so
+        every stage is visible — TCP connect, path, identity, link, request.
+        """
+        def status(msg):
+            """Push a diagnostic string to both logcat and the UI status bar."""
+            log(f"[fetch] {msg}")
+            if on_progress:
+                on_progress(msg)
+
         try:
             dest_hash = bytes.fromhex(node_hex)
+            status(f"dest_hash={node_hex[:8]}… path={page_path}")
 
-            # Request a path from the destination.
-            # NomadNet uses "nomadnetwork.page" as the app/aspect.
-            if not RNS.Transport.has_path(dest_hash):
+            # ── Step 1: check TCP interface is up ─────────────────────────────
+            interfaces = RNS.Transport.interfaces if hasattr(RNS.Transport, "interfaces") else []
+            status(f"RNS interfaces: {len(interfaces)} active")
+            for iface in interfaces:
+                status(f"  iface: {iface.name} online={getattr(iface, 'online', '?')}")
+
+            # ── Step 2: path resolution ───────────────────────────────────────
+            if RNS.Transport.has_path(dest_hash):
+                status("Path already in table — skipping request_path()")
+            else:
+                status("No path cached — calling request_path()…")
                 RNS.Transport.request_path(dest_hash)
                 deadline = time.time() + LINK_TIMEOUT
+                waited = 0.0
                 while not RNS.Transport.has_path(dest_hash):
                     if time.time() > deadline:
-                        on_error("Path not found – node may be offline or unreachable")
+                        on_error(
+                            f"[FAIL] Path not found after {LINK_TIMEOUT}s\n"
+                            f"  Node: {node_hex}\n"
+                            f"  Peer: {YGGDRASIL_PEER}:4965\n"
+                            f"  Interfaces up: {len(interfaces)}\n"
+                            f"  Check: is rnsd running on server? "
+                            f"Can Android reach {YGGDRASIL_PEER}?"
+                        )
                         return
                     time.sleep(0.25)
+                    waited += 0.25
+                    if int(waited) % 2 == 0:
+                        status(f"Waiting for path… {int(waited)}s")
+            status("Path resolved OK")
 
-            # has_path() becoming True means RNS knows a route, but the full
-            # identity (public key) needed to open a Link arrives via the
-            # announce packet which may follow shortly after.  Poll briefly.
+            # ── Step 3: identity recall ───────────────────────────────────────
+            status("Recalling identity…")
             identity = None
             deadline = time.time() + LINK_TIMEOUT
+            waited = 0.0
             while identity is None:
                 identity = RNS.Identity.recall(dest_hash)
                 if identity:
                     break
                 if time.time() > deadline:
-                    on_error("Could not recall identity for this node — "
-                             "announce not received within timeout")
+                    on_error(
+                        f"[FAIL] Identity not received after {LINK_TIMEOUT}s\n"
+                        f"  Path exists but no announce received.\n"
+                        f"  Is pagenode announcing? Check server log for "
+                        f"'Sent announce' lines."
+                    )
                     return
                 time.sleep(0.25)
+                waited += 0.25
+                if int(waited) % 2 == 0:
+                    status(f"Waiting for identity… {int(waited)}s")
+            status(f"Identity recalled: {RNS.hexrep(identity.hash, delimit=False)[:8]}…")
 
+            # ── Step 4: build destination and open link ───────────────────────
             destination = RNS.Destination(
                 identity,
                 RNS.Destination.OUT,
@@ -424,6 +465,7 @@ class ReticulumClient:
                 "nomadnetwork",
                 "page"
             )
+            status(f"Destination hash: {RNS.hexrep(destination.hash, delimit=False)[:8]}…")
 
             link_ready = threading.Event()
             link_error = threading.Event()
@@ -432,87 +474,104 @@ class ReticulumClient:
                 self._active_link = RNS.Link(destination)
 
             def link_established(link):
+                status("Link established!")
                 link_ready.set()
 
             def link_closed(link):
-                # Only signal error if the link never became ready
+                status("Link closed")
                 if not link_ready.is_set():
                     link_error.set()
 
             self._active_link.set_link_established_callback(link_established)
             self._active_link.set_link_closed_callback(link_closed)
 
+            status(f"Waiting for link (timeout={LINK_TIMEOUT}s)…")
             if not link_ready.wait(timeout=LINK_TIMEOUT):
-                on_error("Link establishment timed out")
+                on_error(
+                    f"[FAIL] Link timed out after {LINK_TIMEOUT}s\n"
+                    f"  Identity was recalled but link could not be opened.\n"
+                    f"  Is the pagenode destination still running?"
+                )
                 return
 
             if link_error.is_set():
-                on_error("Link closed before it was ready")
+                on_error("[FAIL] Link closed before it was ready")
                 return
 
-            # Send a page request via RNS link.request().
-            # NomadNet expects the page path as the request path argument.
+            # ── Step 5: send page request ─────────────────────────────────────
+            status(f"Sending request: {page_path}")
             request_done  = threading.Event()
             request_error = threading.Event()
             result_holder = [None]
 
             def response_received(receipt):
-                """
-                FIX: check receipt.response is not None rather than relying
-                solely on status == FAILED.  RNS may deliver the response in
-                DELIVERED state, and the old code would never set request_done
-                in that case, causing the manual deadline loop to time out.
-                """
+                status(f"Response received: status={receipt.status}")
                 if receipt.status == RNS.RequestReceipt.FAILED:
                     request_error.set()
                     return
-                # READY, DELIVERED, or any other non-failed state
                 if receipt.response is not None:
                     result_holder[0] = receipt.response
                     request_done.set()
 
             def progress_updated(receipt):
-                if on_progress:
-                    pct = int(receipt.progress * 100)
-                    on_progress(pct)
+                pct = int(receipt.progress * 100)
+                status(f"Downloading… {pct}%")
 
             def request_failed(receipt):
+                status(f"Request failed callback: status={receipt.status}")
                 request_error.set()
 
             self._active_link.request(
                 page_path,
-                data                 = None,
-                response_callback    = response_received,
-                failed_callback      = request_failed,
-                progress_callback    = progress_updated,
-                timeout              = PAGE_TIMEOUT,
+                data              = None,
+                response_callback = response_received,
+                failed_callback   = request_failed,
+                progress_callback = progress_updated,
+                timeout           = PAGE_TIMEOUT,
             )
 
             deadline = time.time() + PAGE_TIMEOUT
+            waited = 0.0
             while not request_done.is_set() and not request_error.is_set():
                 if time.time() > deadline:
-                    on_error("Page request timed out")
+                    on_error(
+                        f"[FAIL] Request timed out after {PAGE_TIMEOUT}s\n"
+                        f"  Link was open but no response for: {page_path}\n"
+                        f"  Check pagenode _handle_request is being called "
+                        f"(server log should show 'Request:' lines)."
+                    )
                     return
                 time.sleep(0.1)
+                waited += 0.1
+                if int(waited) % 5 == 0 and waited > 0:
+                    status(f"Waiting for response… {int(waited)}s")
 
             if request_error.is_set():
-                on_error("Page request failed")
+                on_error(
+                    f"[FAIL] Request failed\n"
+                    f"  Path: {page_path}\n"
+                    f"  The server received the request but returned an error."
+                )
                 return
 
+            # ── Step 6: decode response ───────────────────────────────────────
             raw = result_holder[0]
             if raw is None:
-                on_error("Empty response from node")
+                on_error("[FAIL] Empty response — server returned no data")
                 return
+
+            status(f"Response size: {len(raw) if isinstance(raw, (bytes,str)) else '?'} bytes")
 
             if isinstance(raw, bytes):
                 content = raw.decode("utf-8", errors="replace")
             else:
                 content = str(raw)
 
+            status("Page decoded OK — rendering…")
             on_done(content)
 
         except Exception as e:
-            on_error(f"Error: {e}\n{traceback.format_exc()}")
+            on_error(f"[EXCEPTION] {e}\n{traceback.format_exc()}")
         finally:
             try:
                 with self._lock:
@@ -924,8 +983,12 @@ class RetiBrowserApp(App):
         self._addrbar.fwd_btn.background_color = \
             BTN_COLOR if self._hist_pos < len(self._history)-1 else (0.08,0.10,0.14,1)
 
-    def _on_progress(self, pct):
-        self._set_status(f"Downloading… {pct}%")
+    def _on_progress(self, msg):
+        # msg is now either a diagnostic string or a numeric pct from progress_updated
+        if isinstance(msg, int):
+            self._set_status(f"Downloading… {msg}%")
+        else:
+            self._set_status(str(msg))
 
     def _on_page_done(self, content):
         self._set_status("Page loaded")
