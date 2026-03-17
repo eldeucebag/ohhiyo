@@ -690,9 +690,16 @@ class ReticulumClient:
                         f"  The server returned an error."
                     )
 
+                # Send path prefix as RNS path, full path in data payload
+                # RNS matches handlers by exact hash of path string, so we must
+                # send the same path prefix the server registered handlers for.
+                import RNS.vendor.umsgpack as umsgpack
+                path_prefix = "/" + page_path.split('/')[1] if '/' in page_path else '/page'
+                request_data = umsgpack.packb({"path": page_path})
+
                 link.request(
-                    page_path,
-                    data              = None,
+                    path_prefix,
+                    data              = request_data,
                     response_callback = response_received,
                     failed_callback   = request_failed,
                     progress_callback = progress_updated,
