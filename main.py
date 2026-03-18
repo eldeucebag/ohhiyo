@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 RetiBrowser - A Kivy-based Reticulum NomadNet Micron Browser
-Connects via Yggdrasil to community hub and renders Micron markup pages.
-
+Connects to a community hub and renders Micron markup pages.
 
 Requirements:
     pip install kivy rns
@@ -19,9 +18,6 @@ import traceback
 
 # ─── Kivy config BEFORE import ───────────────────────────────────────────────
 os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
-
-# Configure Kivy text provider for best Unicode support
-# Use SDL2 text provider which has better Unicode glyph fallback
 os.environ["KIVY_TEXT"] = "sdl2"
 
 # Enable Android logging
@@ -43,65 +39,51 @@ from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Rectangle, RoundedRectangle
+from kivy.graphics import Color, Rectangle
 from kivy.core.window import Window
 from kivy.metrics import dp, sp
-from kivy.utils import get_color_from_hex
-from kivy.uix.anchorlayout import AnchorLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.properties import NumericProperty, ObjectProperty
 from kivy.animation import Animation
 
 import RNS
 import RNS.vendor.umsgpack as umsgpack
 
 # ─── Font Configuration ───────────────────────────────────────────────────────
-# Bundled JetBrains Mono Nerd Font for full Unicode glyph support
 FONT_PATH = None
+
 def _init_font():
-    """Initialize the bundled font path."""
     global FONT_PATH
-    # On Android, fonts are in the app's files directory
     for base in [
         os.path.dirname(os.path.abspath(__file__)),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
     ]:
-        font_path = os.path.join(base, "JetBrainsMonoNerdFont.ttf")
-        if os.path.exists(font_path):
-            FONT_PATH = font_path
+        fp = os.path.join(base, "JetBrainsMonoNerdFont.ttf")
+        if os.path.exists(fp):
+            FONT_PATH = fp
             log(f"Using bundled font: {FONT_PATH}")
             return
-    # Fallback to system font
     FONT_PATH = ""
     log("Using system default font")
 
 _init_font()
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-# Noderage Community Hub - public Reticulum transport relay
-# Both server and clients connect here, avoiding NAT/firewall issues
-NODERAGE_HOST    = "rns.noderage.org"
-NODERAGE_PORT    = 4242
-# Default node - your page node server's destination hash
-DEFAULT_NODE     = "f97f412b9ef6d1c2330ca5ee28ee9e31"
-DEFAULT_PAGE     = "/page/index.mu"
-PAGE_TIMEOUT     = 30                # seconds to wait for a page response
-LINK_TIMEOUT     = 15                # seconds to establish a link
+NODERAGE_HOST = "rns.michmesh.net"
+NODERAGE_PORT = 7822
+DEFAULT_NODE  = "fad4f4c59b38f341d357383593c41bd8"
+DEFAULT_PAGE  = "/page/index.mu"
+PAGE_TIMEOUT  = 30
+LINK_TIMEOUT  = 30
 
-# Micron colour palette (3-hex → kivy rgba)
+# ─── Colours ──────────────────────────────────────────────────────────────────
 MICRON_COLORS = {
-    "f00": (1, 0, 0, 1),      "0f0": (0, 1, 0, 1),
-    "00f": (0, 0, 1, 1),      "ff0": (1, 1, 0, 1),
-    "0ff": (0, 1, 1, 1),      "f0f": (1, 0, 1, 1),
-    "fff": (1, 1, 1, 1),      "000": (0, 0, 0, 1),
-    "888": (.53, .53, .53, 1),"aaa": (.67, .67, .67, 1),
-    "0a0": (0, .63, 0, 1),    "a00": (.63, 0, 0, 1),
-    "00a": (0, 0, .63, 1),    "fa0": (1, .63, 0, 1),
-    "0fa": (0, 1, .63, 1),    "f80": (1, .5, 0, 1),
-    "5f5": (.33, 1, .33, 1),  "55f": (.33, .33, 1, 1),
-    "f55": (1, .33, .33, 1),  "5ff": (.33, 1, 1, 1),
+    "f00": (1,0,0,1),       "0f0": (0,1,0,1),       "00f": (0,0,1,1),
+    "ff0": (1,1,0,1),       "0ff": (0,1,1,1),       "f0f": (1,0,1,1),
+    "fff": (1,1,1,1),       "000": (0,0,0,1),       "888": (.53,.53,.53,1),
+    "aaa": (.67,.67,.67,1), "0a0": (0,.63,0,1),     "a00": (.63,0,0,1),
+    "00a": (0,0,.63,1),     "fa0": (1,.63,0,1),     "0fa": (0,1,.63,1),
+    "f80": (1,.5,0,1),      "5f5": (.33,1,.33,1),   "55f": (.33,.33,1,1),
+    "f55": (1,.33,.33,1),   "5ff": (.33,1,1,1),
 }
-
 BG_COLOR  = (0.05, 0.05, 0.08, 1)
 FG_COLOR  = (0.85, 0.90, 0.85, 1)
 NAV_COLOR = (0.10, 0.12, 0.16, 1)
@@ -113,20 +95,14 @@ LNK_COLOR = (0.40, 0.80, 1.00, 1)
 # ─── Micron Parser ────────────────────────────────────────────────────────────
 
 def hex3_to_rgba(h):
-    """Convert a 3-char hex string to an RGBA 4-tuple (0-1 range)."""
     if h in MICRON_COLORS:
         return MICRON_COLORS[h]
     try:
-        r = int(h[0]*2, 16) / 255
-        g = int(h[1]*2, 16) / 255
-        b = int(h[2]*2, 16) / 255
-        return (r, g, b, 1)
+        return (int(h[0]*2,16)/255, int(h[1]*2,16)/255, int(h[2]*2,16)/255, 1)
     except Exception:
         return FG_COLOR
 
-
 def hex2_to_rgba(h):
-    """Convert a 2-char hex string (grayscale) to an RGBA 4-tuple (0-1 range)."""
     try:
         v = int(h, 16) / 255
         return (v, v, v, 1)
@@ -136,122 +112,64 @@ def hex2_to_rgba(h):
 
 def parse_micron(text):
     """
-    Parse Micron markup and return a list of render elements.
+    Parse Micron markup → list of render elements.
 
-    Full Micron specification support:
-    - Headings: >H1, >>H2, >>>H3, < (reset section depth)
-    - Bold: `!text`!
-    - Italic: `*text`*
-    - Underline: `_text`_
-    - Colors: `Fxxx...`f (foreground), `Bxxx...`b (background), `gXX (grayscale)
-    - Alignment: `c (center), `l (left), `r (right), `a (reset alignment)
-    - Links: `[label`path] or `[`path]
-    - Dividers: --- or `-`
-    - Comments: # (except #! which is for cache headers)
-    - Literal mode: `=...`= (displays text without formatting)
-    - Escape: \\` for literal backtick
-    - Reset: `` (reset all formatting)
-
-    Each element is a dict with keys:
-      type: "text" | "link" | "divider" | "blank" | "literal"
-      For "text":
-        segments: list of {"text":str, "bold":bool, "italic":bool,
-                           "underline":bool, "fg":rgba, "bg":rgba}
-        align: "left"|"center"|"right"
-        heading: 0|1|2|3
-      For "link":
-        label: str, path: str, node: str (may be "")
-        fg: rgba
-      For "divider": (horizontal rule)
-      For "blank": empty line
-      For "literal": raw text content
+    Supported:
+      - Headings: > >> >>> with optional trailing <
+      - Inline: `! bold  `* italic  `_ underline  `` reset
+      - Colour: `Fxxx fg  `f reset-fg  `Bxxx bg  `b reset-bg  `gXX grayscale
+      - Alignment: `c  `l  `r  `a (flush before changing)
+      - Links: `[label`path]`  and  `[`path]`
+      - Link field refs stripped: `[Label`path`field1|field2]`
+      - Input fields (read-only): `<...>  rendered as dimmed placeholder
+      - lxmf@ links: rendered as ✉ label, not navigation
+      - Dividers: -  ---  `-`  -X (custom fill char X)
+      - Literal mode: `= ... `=
+      - Comments: # (not #!)
+      - Cache headers: all leading #! lines stripped
+      - Escape: \\ before any char
     """
     elements = []
-
-    # State variables
-    cur_fg    = FG_COLOR
-    cur_bg    = BG_COLOR
-    cur_bold  = False
-    cur_ital  = False
-    cur_uline = False
+    cur_fg, cur_bg  = FG_COLOR, BG_COLOR
+    cur_bold = cur_ital = cur_uline = False
     cur_align = "left"
     in_literal = False
     literal_buffer = []
 
     def reset_fmt():
         nonlocal cur_fg, cur_bg, cur_bold, cur_ital, cur_uline, cur_align
-        cur_fg    = FG_COLOR
-        cur_bg    = BG_COLOR
-        cur_bold  = False
-        cur_ital  = False
-        cur_uline  = False
+        cur_fg, cur_bg = FG_COLOR, BG_COLOR
+        cur_bold = cur_ital = cur_uline = False
         cur_align = "left"
 
-    def process_inline_line(line):
-        """Process a single line for inline formatting and return elements."""
+    def _inline_segments(line):
+        """
+        Tokenise one line of inline Micron markup.
+        Returns (segments_list, links_list, final_align).
+        Does NOT handle line-level tokens (>, <, -, #, etc.).
+        """
         nonlocal cur_fg, cur_bg, cur_bold, cur_ital, cur_uline, cur_align
-        
-        # Section headers - also handle trailing < for section reset
-        if line.startswith(">>>"):
-            text = line[3:].rstrip().rstrip("<").strip()
-            return [{"type":"text","heading":3,"align":"left",
-                "segments":[{"text":text,"bold":True,"italic":False,
-                              "underline":False,"fg":(0.7,0.9,1,1),"bg":BG_COLOR}]}]
-        if line.startswith(">>"):
-            text = line[2:].rstrip().rstrip("<").strip()
-            return [{"type":"text","heading":2,"align":"left",
-                "segments":[{"text":text,"bold":True,"italic":False,
-                              "underline":False,"fg":(0.6,1,0.7,1),"bg":BG_COLOR}]}]
-        if line.startswith(">"):
-            text = line[1:].rstrip().rstrip("<").strip()
-            return [{"type":"text","heading":1,"align":"left",
-                "segments":[{"text":text,"bold":True,"italic":False,
-                              "underline":False,"fg":(1,0.85,0.3,1),"bg":BG_COLOR}]}]
-        
-        # Section depth reset
-        if line.strip() == "<":
-            return []
-        
-        # Horizontal divider
-        stripped = line.strip()
-        if stripped.startswith("---") or stripped == "`-`":
-            return [{"type":"divider"}]
-        
-        # Empty line
-        if stripped == "":
-            return [{"type":"blank"}]
-        
-        # Comment lines
-        if line.startswith("#") and not line.startswith("#!"):
-            return []
-        
-        # Inline markup processing
-        segments = []
-        links = []
-        i = 0
-        seg_fg = cur_fg
-        seg_bg = cur_bg
-        seg_bold = cur_bold
-        seg_ital = cur_ital
-        seg_uline = cur_uline
+        segments, links = [], []
+        seg_fg, seg_bg   = cur_fg, cur_bg
+        seg_bold, seg_ital, seg_uline = cur_bold, cur_ital, cur_uline
         seg_align = cur_align
         buf = ""
+        i = 0
 
-        def flush(b, _bold=None, _ital=None, _uline=None, _fg=None, _bg=None):
-            if _bold is None: _bold = seg_bold
-            if _ital is None: _ital = seg_ital
-            if _uline is None: _uline = seg_uline
-            if _fg is None: _fg = seg_fg
-            if _bg is None: _bg = seg_bg
-            if b:
-                segments.append({"text":b, "bold":_bold, "italic":_ital,
-                                  "underline":_uline, "fg":_fg, "bg":_bg})
+        def flush():
+            nonlocal buf
+            if buf:
+                segments.append({
+                    "text": buf, "bold": seg_bold, "italic": seg_ital,
+                    "underline": seg_uline, "fg": seg_fg, "bg": seg_bg,
+                })
+            buf = ""
 
         while i < len(line):
             ch = line[i]
 
-            # Escape character
-            if ch == '\\' and i + 1 < len(line):
+            # Backslash escape
+            if ch == "\\" and i + 1 < len(line):
                 buf += line[i + 1]
                 i += 2
                 continue
@@ -263,81 +181,58 @@ def parse_micron(text):
 
             nxt = line[i+1] if i+1 < len(line) else ""
 
-            # `` → reset all formatting
+            # `` reset all formatting
             if nxt == "`":
-                flush(buf); buf = ""
-                reset_fmt()
+                flush(); reset_fmt()
                 seg_fg, seg_bg = cur_fg, cur_bg
-                seg_bold, seg_ital, seg_uline = cur_bold, cur_ital, cur_uline
-                i += 2
-                continue
+                seg_bold = seg_ital = seg_uline = False
+                i += 2; continue
 
-            # `! … `! bold toggle
+            # `! bold
             if nxt == "!":
-                flush(buf); buf = ""
-                seg_bold = not seg_bold
-                i += 2
-                continue
+                flush(); seg_bold = not seg_bold; i += 2; continue
 
-            # `* … `* italic toggle
+            # `* italic
             if nxt == "*":
-                flush(buf); buf = ""
-                seg_ital = not seg_ital
-                i += 2
-                continue
+                flush(); seg_ital = not seg_ital; i += 2; continue
 
-            # `_ … `_ underline toggle
+            # `_ underline
             if nxt == "_":
-                flush(buf); buf = ""
-                seg_uline = not seg_uline
-                i += 2
-                continue
+                flush(); seg_uline = not seg_uline; i += 2; continue
 
-            # Alignment
-            if nxt in ("c","l","r") and i+2 < len(line) and line[i+2] != "`":
-                flush(buf); buf = ""
-                seg_align = {"c":"center","l":"left","r":"right"}[nxt]
-                i += 2
-                continue
+            # `a alignment reset — flush first
             if nxt == "a":
-                seg_align = "left"
-                i += 2
-                continue
+                flush(); seg_align = "left"; i += 2; continue
 
-            # Foreground colour
+            # `c `l `r alignment (only when followed by non-backtick)
+            if nxt in ("c","l","r") and i+2 < len(line) and line[i+2] != "`":
+                flush()
+                seg_align = {"c":"center","l":"left","r":"right"}[nxt]
+                i += 2; continue
+
+            # `Fxxx foreground colour
             if nxt == "F" and i+4 < len(line):
-                flush(buf); buf = ""
-                seg_fg = hex3_to_rgba(line[i+2:i+5])
-                i += 5
-                continue
+                flush(); seg_fg = hex3_to_rgba(line[i+2:i+5]); i += 5; continue
+
+            # `f reset foreground
             if nxt == "f":
-                flush(buf); buf = ""
-                seg_fg = FG_COLOR
-                i += 2
-                continue
+                flush(); seg_fg = FG_COLOR; i += 2; continue
 
-            # Background colour
+            # `Bxxx background colour
             if nxt == "B" and i+4 < len(line):
-                flush(buf); buf = ""
-                seg_bg = hex3_to_rgba(line[i+2:i+5])
-                i += 5
-                continue
+                flush(); seg_bg = hex3_to_rgba(line[i+2:i+5]); i += 5; continue
+
+            # `b reset background
             if nxt == "b":
-                flush(buf); buf = ""
-                seg_bg = BG_COLOR
-                i += 2
-                continue
+                flush(); seg_bg = BG_COLOR; i += 2; continue
 
-            # Grayscale
+            # `gXX grayscale foreground
             if nxt == "g" and i+3 < len(line):
-                flush(buf); buf = ""
-                seg_fg = hex2_to_rgba(line[i+2:i+4])
-                i += 4
-                continue
+                flush(); seg_fg = hex2_to_rgba(line[i+2:i+4]); i += 4; continue
 
-            # Link
+            # `[label`path]`  link
             if nxt == "[":
-                flush(buf); buf = ""
+                flush()
                 j = line.find("`", i+2)
                 if j == -1:
                     buf += ch; i += 1; continue
@@ -345,99 +240,154 @@ def parse_micron(text):
                 k = line.find("]", j+1)
                 if k == -1:
                     buf += ch; i += 1; continue
-                path = line[j+1:k]
-                node_addr = ""
-                page_path = path
-                if ":" in path and not path.startswith("/"):
-                    parts = path.split(":", 1)
-                    node_addr = parts[0]
-                    page_path = parts[1]
+                raw_path = line[j+1:k]
+                # Strip field references: `[Label`path`field1|field2]`
+                if "`" in raw_path:
+                    raw_path = raw_path[:raw_path.index("`")]
+                node_addr, page_path = "", raw_path
+                if ":" in raw_path and not raw_path.startswith("/"):
+                    node_addr, page_path = raw_path.split(":", 1)
                 if not label_text:
                     label_text = page_path
-                links.append({
-                    "type":"link", "label": label_text, "path": page_path,
-                    "node": node_addr, "fg": LNK_COLOR,
-                })
+                # lxmf@ addresses are messaging, not page navigation
+                if page_path.startswith("lxmf") or node_addr.startswith("lxmf"):
+                    segments.append({
+                        "text": f"✉ {label_text}", "bold": False, "italic": True,
+                        "underline": True, "fg": (0.6,0.8,0.6,1), "bg": seg_bg,
+                    })
+                else:
+                    links.append({
+                        "type":"link", "label":label_text,
+                        "path":page_path, "node":node_addr, "fg":LNK_COLOR,
+                    })
                 i = k+1
                 if i < len(line) and line[i] == "`":
                     i += 1
                 continue
 
-            buf += ch
-            i += 1
+            # `<fieldname`default>  input field (read-only: render placeholder)
+            if nxt == "<":
+                flush()
+                end = line.find(">", i+2)
+                if end != -1:
+                    field_spec = line[i+2:end]
+                    tick = field_spec.rfind("`")
+                    default = field_spec[tick+1:] if tick != -1 else ""
+                    if default:
+                        segments.append({
+                            "text": f"[{default}]", "bold": False, "italic": True,
+                            "underline": False, "fg": (0.5,0.6,0.7,1), "bg": seg_bg,
+                        })
+                    i = end + 1
+                else:
+                    buf += ch; i += 1
+                continue
 
-        flush(buf)
+            # Unrecognised escape — emit literally
+            buf += ch; i += 1
 
-        if links:
-            result = []
-            if segments:
-                result.append({"type":"text","heading":0,"align":seg_align,"segments":segments})
-            result.extend(links)
-            return result
-        elif segments:
-            return [{"type":"text","heading":0,"align":seg_align,"segments":segments}]
-        else:
+        flush()
+        return segments, links, seg_align
+
+    def _make_heading(level, raw_text, base_fg):
+        """Process a heading line, allowing inline markup inside it."""
+        content = raw_text.rstrip().rstrip("<").strip()
+        segs, lnks, align = _inline_segments(content)
+        # Promote all segments to heading style
+        result = []
+        if segs:
+            for s in segs:
+                s["bold"] = True
+                if s["fg"] == FG_COLOR:
+                    s["fg"] = base_fg
+            result.append({"type":"text","heading":level,"align":"left","segments":segs})
+        if lnks:
+            result.extend(lnks)
+        if not result:
+            result = [{"type":"text","heading":level,"align":"left",
+                       "segments":[{"text":content,"bold":True,"italic":False,
+                                    "underline":False,"fg":base_fg,"bg":BG_COLOR}]}]
+        return result
+
+    def process_line(line):
+        """Handle one source line, returns list of elements."""
+        stripped = line.strip()
+
+        # Headings — process inline markup inside them
+        if line.startswith(">>>"):
+            return _make_heading(3, line[3:], (0.7,0.9,1,1))
+        if line.startswith(">>"):
+            return _make_heading(2, line[2:], (0.6,1,0.7,1))
+        if line.startswith(">"):
+            return _make_heading(1, line[1:], (1,0.85,0.3,1))
+
+        # Section depth reset
+        if stripped == "<":
+            return []
+
+        # Dividers: single "-", "---", "`-`", "-X" (custom char)
+        if stripped == "-" or stripped.startswith("---") or stripped == "`-`":
+            return [{"type":"divider"}]
+        if len(stripped) == 2 and stripped[0] == "-" and stripped[1] not in " \t":
+            return [{"type":"divider","char":stripped[1]}]
+
+        # Empty line
+        if stripped == "":
             return [{"type":"blank"}]
 
-    # Strip cache-control header
+        # Comment (not cache header)
+        if line.startswith("#") and not line.startswith("#!"):
+            return []
+
+        # Normal inline markup
+        segs, lnks, align = _inline_segments(line)
+        result = []
+        if segs:
+            result.append({"type":"text","heading":0,"align":align,"segments":segs})
+        result.extend(lnks)
+        return result if result else [{"type":"blank"}]
+
+    # Strip all leading #! control/cache header lines
     lines = text.split("\n")
-    if lines and lines[0].strip().startswith("#!"):
+    while lines and lines[0].strip().startswith("#!"):
         lines = lines[1:]
 
     for raw_line in lines:
         line = raw_line.rstrip("\r")
 
-        # Literal mode handling
         if in_literal:
             if "`=" in line:
                 idx = line.index("`=")
                 literal_buffer.append(line[:idx])
-                elements.append({
-                    "type": "literal",
-                    "content": "\n".join(literal_buffer)
-                })
+                elements.append({"type":"literal","content":"\n".join(literal_buffer)})
                 literal_buffer = []
                 in_literal = False
-                # Process rest of line after literal end
                 remainder = line[idx+2:]
                 if remainder:
-                    elements.extend(process_inline_line(remainder))
+                    elements.extend(process_line(remainder))
             else:
                 literal_buffer.append(line)
-                continue
         elif "`=" in line:
             idx = line.index("`=")
-            before = line[:idx]
-            after = line[idx+2:]
-
+            before, after = line[:idx], line[idx+2:]
             if "`=" in after:
-                # Literal starts and ends on same line
                 end_idx = after.index("`=")
-                literal_content = after[:end_idx]
+                if before:
+                    elements.extend(process_line(before))
+                elements.append({"type":"literal","content":after[:end_idx]})
                 remainder = after[end_idx+2:]
-
-                if before:
-                    elements.extend(process_inline_line(before))
-                elements.append({"type": "literal", "content": literal_content})
                 if remainder:
-                    elements.extend(process_inline_line(remainder))
-                continue
+                    elements.extend(process_line(remainder))
             else:
-                # Start multiline literal
                 if before:
-                    elements.extend(process_inline_line(before))
+                    elements.extend(process_line(before))
                 in_literal = True
                 literal_buffer = [after]
-                continue
         else:
-            elements.extend(process_inline_line(line))
+            elements.extend(process_line(line))
 
-    # Handle unclosed literal mode
     if in_literal and literal_buffer:
-        elements.append({
-            "type": "literal",
-            "content": "\n".join(literal_buffer)
-        })
+        elements.append({"type":"literal","content":"\n".join(literal_buffer)})
 
     return elements
 
@@ -445,82 +395,78 @@ def parse_micron(text):
 # ─── Reticulum Network Layer ──────────────────────────────────────────────────
 
 class AnnounceHandler:
-    """Handler for RNS announce messages."""
-    
+    """Receives RNS announce packets and extracts node info."""
+
+    aspect_filter = None  # Accept all aspects (must be None, not "nomadnetwork")
+
     def __init__(self, on_announce_callback=None):
         self.on_announce_callback = on_announce_callback
         self._announced_nodes = {}
-        # None = accept all — "nomadnetwork" does NOT match "nomadnetwork.page"
-        self.aspect_filter = None
-    
-    def received_announce(self, destination_hash, announced_identity, app_data, announce_packet_hash=None, is_path_response=False):
-        """Called when an announce is received."""
+
+    def received_announce(self, destination_hash, announced_identity, app_data,
+                          announce_packet_hash=None, is_path_response=False):
+        if not announced_identity:
+            return
         try:
-            if announced_identity:
-                # destination_hash matches DEFAULT_NODE; announced_identity.hash does not
-                node_hash = RNS.hexrep(destination_hash, delimit=False)
+            node_hash = RNS.hexrep(destination_hash, delimit=False)
+
+            # Parse app_data — NomadNet nodes use several formats:
+            #   dict   : {"name": "...", "type": "...", ...}
+            #   list   : [b"NodeName", None|dict]  — most common NomadNet format
+            #   bytes  : msgpack-encoded dict or list
+            #   scalar : int/None — no useful name info
+            info = {}
+            if isinstance(app_data, bytes):
                 try:
-                    # app_data might be bytes (needs unpacking) or already unpacked
-                    if isinstance(app_data, bytes):
-                        try:
-                            info = umsgpack.unpackb(app_data)
-                            log(f"Unpacked announce bytes: {info}")
-                        except Exception as unpack_err:
-                            log(f"Failed to unpack announce data: {unpack_err}")
-                            info = {}
-                    elif isinstance(app_data, dict):
-                        info = app_data
-                        log(f"Announce data (dict): {info}")
-                    elif isinstance(app_data, list):
-                        # Some announces come as lists - extract what we can
-                        info = {"name": f"Node {node_hash[:8]}", "type": "unknown"}
-                        log(f"Announce data (list, using fallback): {info}")
-                    else:
-                        info = {}
-                        log(f"Announce data (unknown type: {type(app_data)}): {app_data}")
+                    info = umsgpack.unpackb(app_data)
+                except Exception:
+                    info = {}
+            elif isinstance(app_data, dict):
+                info = app_data
+            elif isinstance(app_data, list):
+                # [b'NodeName', optional_dict_or_None]
+                name_raw = app_data[0] if app_data else None
+                extra    = app_data[1] if len(app_data) > 1 else None
+                if isinstance(name_raw, bytes):
+                    info["name"] = name_raw.decode("utf-8", errors="replace")
+                if isinstance(extra, dict):
+                    info.update(extra)
+            # scalar (int, None, etc.) → info stays {}
 
-                    # Extract node name from NomadNet announce data
-                    # NomadNet includes: name, type, capabilities, timestamp
-                    extracted_name = None
-                    if isinstance(info, dict):
-                        # Try common NomadNet node name fields
-                        extracted_name = (
-                            info.get("name") or 
-                            info.get("nodename") or 
-                            info.get("node_name") or
-                            info.get("title") or 
-                            info.get("display_name") or
-                            info.get("hostname")
-                        )
-                        log(f"Name extraction from {list(info.keys())}: got '{extracted_name}'")
+            # If info itself is a list (nested unpack), handle similarly
+            if isinstance(info, list):
+                name_raw = info[0] if info else None
+                extra    = info[1] if len(info) > 1 else None
+                info = {}
+                if isinstance(name_raw, bytes):
+                    info["name"] = name_raw.decode("utf-8", errors="replace")
+                if isinstance(extra, dict):
+                    info.update(extra)
+            elif not isinstance(info, dict):
+                info = {}
 
-                    if not extracted_name:
-                        extracted_name = f"Node {node_hash[:8]}"
+            name = (info.get("name") or info.get("nodename") or
+                    info.get("node_name") or info.get("title") or
+                    info.get("display_name") or info.get("hostname") or
+                    f"Node {node_hash[:8]}")
 
-                    self._announced_nodes[node_hash] = {
-                        "hash": node_hash,
-                        "name": extracted_name,
-                        "timestamp": info.get("timestamp", time.time()) if isinstance(info, dict) else time.time(),
-                        "capabilities": info.get("capabilities", []) if isinstance(info, dict) else [],
-                        "type": info.get("type", "unknown") if isinstance(info, dict) else "unknown",
-                        "raw_info": info,  # Store raw info for debugging
-                    }
-                    RNS.log(f"RetiBrowser: Received announce from {node_hash[:8]}... ({self._announced_nodes[node_hash]['name']})", RNS.LOG_NOTICE)
-                    log(f"Announce stored: name={extracted_name}, hash={node_hash[:8]}..., type={self._announced_nodes[node_hash].get('type', 'unknown')}, capabilities={self._announced_nodes[node_hash].get('capabilities', [])}")
+            node_record = {
+                "hash":         node_hash,
+                "name":         name,
+                "timestamp":    info.get("timestamp", time.time()),
+                "capabilities": info.get("capabilities", []),
+                "type":         info.get("type", "unknown"),
+            }
+            self._announced_nodes[node_hash] = node_record
+            log(f"Announce: {name} ({node_hash[:8]}…)")
 
-                    # Callback to update UI
-                    if self.on_announce_callback:
-                        Clock.schedule_once(
-                            lambda dt, nh=node_hash: self.on_announce_callback(self._announced_nodes[nh]),
-                            0
-                        )
-                except Exception as e:
-                    RNS.log(f"RetiBrowser: Error parsing announce data: {e}", RNS.LOG_ERROR)
+            if self.on_announce_callback:
+                Clock.schedule_once(
+                    lambda dt, nr=node_record: self.on_announce_callback(nr), 0)
         except Exception as e:
-            RNS.log(f"RetiBrowser: Error in announce handler: {e}", RNS.LOG_ERROR)
-    
+            RNS.log(f"RetiBrowser: announce handler error: {e}", RNS.LOG_ERROR)
+
     def get_announced_nodes(self):
-        """Return list of nodes we've heard announces from."""
         return list(self._announced_nodes.values())
 
 
@@ -528,91 +474,85 @@ class ReticulumClient:
     """Manages the RNS instance and page fetching."""
 
     def __init__(self, on_announce_callback=None):
-        self.rns          = None
-        self.identity     = None
-        self._active_link = None
-        self._lock        = threading.Lock()
-        self.on_announce_callback = on_announce_callback
+        self.rns              = None
+        self.identity         = None
+        self._active_link     = None
+        self._lock            = threading.Lock()
         self.announce_handler = AnnounceHandler(on_announce_callback)
 
     def start(self, hub_host=NODERAGE_HOST, hub_port=NODERAGE_PORT):
-        """Initialise Reticulum with a TCPClientInterface to Noderage hub."""
-        config = self._build_config(hub_host, hub_port)
-
-        # Determine a writable path for configuration.
-        # On Android, home (~) might be /data or / which is read-only for apps.
-        # Kivy's App.user_data_dir is the standard way to get a writable path.
+        # Resolve a writable config directory
         try:
             from kivy.app import App as KivyApp
-            app_inst = KivyApp.get_running_app()
-            if app_inst and app_inst.user_data_dir:
-                config_root = app_inst.user_data_dir
-            else:
-                config_root = os.path.expanduser("~")
+            app = KivyApp.get_running_app()
+            config_root = app.user_data_dir if (app and app.user_data_dir) else os.path.expanduser("~")
         except Exception:
             config_root = os.path.expanduser("~")
 
         config_path = os.path.join(config_root, ".reticulum_retibrowser")
         os.makedirs(config_path, exist_ok=True)
+
+        # Write RNS config.
+        # enable_transport = No — we are a CLIENT, not a relay.
+        # With Yes, RNS tries to rebroadcast every incoming announce to other
+        # interfaces; having only one interface causes:
+        #   [Error] No interfaces could process the outbound packet
         with open(os.path.join(config_path, "config"), "w") as f:
-            f.write(config)
-
-        self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_DEBUG)
-        self.identity = RNS.Identity()
-
-        # Register announce handler immediately so no announces are missed
-        RNS.Transport.register_announce_handler(self.announce_handler)
-
-        RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
-
-    def _send_announce(self):
-        """Browsers do not announce — only servers do. No-op."""
-        pass
-
-    def get_announced_nodes(self):
-        """Return list of nodes we've heard announces from."""
-        return self.announce_handler.get_announced_nodes()
-
-    def _build_config(self, hub_host, hub_port):
-        return f"""[reticulum]
-  enable_transport = Yes
+            f.write(f"""[reticulum]
+  enable_transport = No
   share_instance   = No
   rpc_listener     = No
 
 [interfaces]
 
-  [[Noderage Community Hub]]
+  [[Community Hub]]
     type        = TCPClientInterface
     enabled     = yes
     target_host = {hub_host}
     target_port = {hub_port}
-"""
+""")
+
+        self.rns = RNS.Reticulum(configdir=config_path, loglevel=RNS.LOG_DEBUG)
+
+        # Persistent identity — a new random identity every launch causes ECDH
+        # handshake failures when the server has a cached (now-stale) public key.
+        identity_file = os.path.join(config_path, "identity")
+        if os.path.exists(identity_file):
+            self.identity = RNS.Identity.from_file(identity_file)
+            log(f"Loaded identity: {RNS.hexrep(self.identity.hash, delimit=False)[:8]}…")
+        else:
+            self.identity = RNS.Identity()
+            self.identity.to_file(identity_file)
+            log(f"Created identity: {RNS.hexrep(self.identity.hash, delimit=False)[:8]}…")
+
+        # Register handler BEFORE any announces could arrive
+        RNS.Transport.register_announce_handler(self.announce_handler)
+        RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
+
+    def get_announced_nodes(self):
+        return self.announce_handler.get_announced_nodes()
 
     def fetch_page(self, node_hex, page_path, on_done, on_error, on_progress=None):
-        """
-        Fetch a NomadNet page from node_hex at page_path in a background thread.
-        on_done(content_str) called on success.
-        on_error(msg)        called on failure.
-        on_progress(pct)     optional progress 0-100.
-        """
-        t = threading.Thread(
+        threading.Thread(
             target=self._fetch_thread,
             args=(node_hex, page_path, on_done, on_error, on_progress),
-            daemon=True
-        )
-        t.start()
+            daemon=True,
+        ).start()
 
     def _fetch_thread(self, node_hex, page_path, on_done, on_error, on_progress):
         """
-        Fetch a page using a pure callback chain — no sleep(), no Event.wait(),
-        no polling loops.  Every step hands off to the next via RNS callbacks
-        so the thread exits immediately after scheduling work and never blocks.
+        Pure callback chain — no sleep(), no Event.wait(), no polling.
 
-        Flow:
-          _fetch_thread → _step_path → _step_identity → _step_open_link
-              → _step_send_request → (response_received | request_failed)
-        Each step is a nested function that closes over the shared state and
-        calls the next step or on_error/on_done as appropriate.
+        _fetch_thread
+          → (path in table?) yes → _step_identity
+                              no  → register _PathWatcher + timeout
+                                      → on announce → _step_identity
+          → _step_identity  → recall identity → _step_open_link
+          → _step_open_link → RNS.Link() + timeout clock
+                                → _on_link_established → _step_send_request
+          → _step_send_request → link.request()
+                                    → response_received → on_done
+                                    → request_failed   → on_error
         """
         def status(msg):
             log(f"[fetch] {msg}")
@@ -634,187 +574,181 @@ class ReticulumClient:
 
         try:
             dest_hash = bytes.fromhex(node_hex)
-            status(f"dest_hash={node_hex[:8]}… path={page_path}")
+            status(f"dest={node_hex[:8]}… path={page_path}")
 
-            # ── Step 1: log interface state (instant, no blocking) ────────────
-            interfaces = RNS.Transport.interfaces if hasattr(RNS.Transport, "interfaces") else []
-            status(f"RNS interfaces: {len(interfaces)} active")
-            for iface in interfaces:
-                status(f"  iface: {iface.name} online={getattr(iface, 'online', '?')}")
+            # Log interface state
+            interfaces = getattr(RNS.Transport, "interfaces", [])
+            status(f"{len(interfaces)} interface(s): " +
+                   ", ".join(f"{getattr(i,'name','?')} online={getattr(i,'online','?')}"
+                             for i in interfaces))
 
-            # ── Step 2→3: path + identity ─────────────────────────────────────
-            # path and identity arrive together in the announce packet so we
-            # only need to check once.  If already known, proceed immediately.
-            # If not, register a path response callback and return — RNS will
-            # call us back when the path arrives (no polling or sleep needed).
-
-            def _step_identity(dest_hash):
-                """Called once path is confirmed to exist."""
-                identity = RNS.Identity.recall(dest_hash)
-                node_hex_display = RNS.hexrep(dest_hash, delimit=False)[:8]
+            def _step_identity(dh):
+                identity = RNS.Identity.recall(dh)
                 if not identity:
-                    fail(
-                        f"[FAIL] Identity not in announce table after path resolved.\n"
-                        f"  Node: {node_hex_display}...\n"
-                        f"  Is pagenode announcing? Check server log for "
-                        f"'Sent announce' lines."
-                    )
+                    fail(f"[FAIL] Identity not recalled for {RNS.hexrep(dh,delimit=False)[:8]}…\n"
+                         f"  Server may not be announcing. Check server log.")
                     return
-                identity_hash = RNS.hexrep(identity.hash, delimit=False)
-                status(f"Identity recalled: {identity_hash[:8]}… for node {node_hex_display}...")
-                # Verify identity hash matches the destination hash we're connecting to
-                if identity_hash != RNS.hexrep(dest_hash, delimit=False):
-                    log(f"[WARN] Identity hash mismatch! Expected {node_hex_display}, got {identity_hash[:8]}")
-                _step_open_link(identity, dest_hash)
+                status(f"Identity recalled: {RNS.hexrep(identity.hash,delimit=False)[:8]}…")
+                # Note: identity.hash ≠ dest_hash by design (dest includes app+aspects)
+                _step_open_link(identity, dh)
 
-            def _step_open_link(identity, dest_hash):
-                """Open an encrypted RNS Link to the destination."""
+            def _step_open_link(identity, dh):
                 destination = RNS.Destination(
-                    identity,
-                    RNS.Destination.OUT,
-                    RNS.Destination.SINGLE,
-                    "nomadnetwork",
-                    "page",
+                    identity, RNS.Destination.OUT, RNS.Destination.SINGLE,
+                    "nomadnetwork", "page",
                 )
-                dest_hash_hex = RNS.hexrep(dest_hash, delimit=False)
-                status(f"Opening link to {dest_hash_hex[:8]}… (identity: {RNS.hexrep(identity.hash, delimit=False)[:8]}…)")
+                status(f"Opening link to {RNS.hexrep(dh,delimit=False)[:8]}…")
 
-                # Timeout: schedule a Clock callback that fires if link never opens
-                timeout_trigger = [None]
+                timeout_ev = [None]
 
                 def _on_link_established(link):
-                    if timeout_trigger[0]:
-                        timeout_trigger[0].cancel()
-                        timeout_trigger[0] = None
+                    if timeout_ev[0]:
+                        timeout_ev[0].cancel()
+                        timeout_ev[0] = None
                     status("Link established!")
                     _step_send_request(link)
 
                 def _on_link_closed(link):
-                    if timeout_trigger[0]:
-                        timeout_trigger[0].cancel()
-                        timeout_trigger[0] = None
-                    # Only an error if we never got to send a request
-                    status("Link closed")
+                    # If the timeout clock is still pending when the link closes,
+                    # it means the link never established. Let the timeout fire
+                    # naturally with its descriptive error rather than failing
+                    # immediately — RNS may internally retry the link after a
+                    # path rediscovery, and we don't want to abort prematurely.
+                    # The timeout clock will call fail() if the link stays down.
+                    if timeout_ev[0]:
+                        status("Link closed before established — waiting for timeout or retry")
 
                 def _on_link_timeout(dt):
-                    timeout_trigger[0] = None
-                    fail(
-                        f"[FAIL] Link timed out after {LINK_TIMEOUT}s\n"
-                        f"  Identity recalled but encrypted link could not open.\n"
-                        f"  Is the pagenode destination still running?"
-                    )
+                    timeout_ev[0] = None
+                    fail(f"[FAIL] Link timed out after {LINK_TIMEOUT}s\n"
+                         f"  Is the page node destination still running?")
 
                 with self._lock:
                     self._active_link = RNS.Link(destination)
-
                 self._active_link.set_link_established_callback(_on_link_established)
                 self._active_link.set_link_closed_callback(_on_link_closed)
-
-                # Schedule timeout via Kivy Clock — fires on main thread, no blocking
-                timeout_trigger[0] = Clock.schedule_once(_on_link_timeout, LINK_TIMEOUT)
-                status(f"Waiting for link…")
+                timeout_ev[0] = Clock.schedule_once(_on_link_timeout, LINK_TIMEOUT)
+                status("Waiting for link…")
 
             def _step_send_request(link):
-                """Send the page request over the established link."""
                 status(f"Sending request: {page_path}")
 
                 def response_received(receipt):
-                    status(f"Response received: status={receipt.status}")
+                    status(f"Response: status={receipt.status}")
                     if receipt.status == RNS.RequestReceipt.FAILED:
-                        fail(
-                            f"[FAIL] Request failed\n"
-                            f"  Path: {page_path}\n"
-                            f"  Server returned an error response."
-                        )
+                        fail(f"[FAIL] Request failed for {page_path}")
                         return
                     if receipt.response is not None:
                         raw = receipt.response
-                        status(f"Response size: {len(raw) if isinstance(raw, (bytes,str)) else '?'} bytes")
-                        if isinstance(raw, bytes):
-                            page_content = raw.decode("utf-8", errors="replace")
-                        else:
-                            page_content = str(raw)
-                        status("Page decoded OK — rendering…")
+                        page_content = (raw.decode("utf-8", errors="replace")
+                                        if isinstance(raw, bytes) else str(raw))
+                        status(f"Response {len(page_content)} chars — rendering…")
                         teardown()
                         on_done(page_content)
 
                 def progress_updated(receipt):
-                    pct = int(receipt.progress * 100)
-                    status(f"Downloading… {pct}%")
+                    status(f"Downloading… {int(receipt.progress*100)}%")
 
                 def request_failed(receipt):
-                    status(f"Request failed callback: status={receipt.status}")
-                    fail(
-                        f"[FAIL] Request failed\n"
-                        f"  Path: {page_path}\n"
-                        f"  The server returned an error."
-                    )
+                    fail(f"[FAIL] Request failed (status={receipt.status}) for {page_path}")
 
-                # Send path prefix as RNS path, full path in data payload
-                # RNS matches handlers by exact hash of path string, so we must
-                # send the same path prefix the server registered handlers for.
-                import RNS.vendor.umsgpack as umsgpack
-                path_prefix = "/" + page_path.split('/')[1] if '/' in page_path else '/page'
-                request_data = umsgpack.packb({"path": page_path})
-
+                # Send the FULL path — server routes on this argument directly.
+                # Never truncate to "/page": that breaks every page except index.mu.
                 link.request(
-                    path_prefix,
-                    data              = request_data,
+                    page_path,
+                    data              = None,
                     response_callback = response_received,
                     failed_callback   = request_failed,
                     progress_callback = progress_updated,
                     timeout           = PAGE_TIMEOUT,
                 )
-                # link.request() registers callbacks and returns immediately.
-                # RNS fires response_received or request_failed when done.
 
-            # ── Kick off the chain ────────────────────────────────────────────
-            if RNS.Transport.has_path(dest_hash):
-                status("Path already in table")
+            # ── Start the chain ───────────────────────────────────────────────
+            # Always expire any cached path before requesting — cached entries
+            # from previous sessions may be stale (hub topology changes between
+            # runs). A stale path causes "link was never established / trying to
+            # rediscover" because RNS trusts the cache and sends the link request
+            # to a next-hop that no longer exists on the network.
+            if hasattr(RNS.Transport, "expire_announced_path"):
+                try:
+                    RNS.Transport.expire_announced_path(dest_hash)
+                    status("Expired cached path — requesting fresh route")
+                except Exception:
+                    pass
+            elif RNS.Transport.has_path(dest_hash):
+                # expire_announced_path not available in this RNS version —
+                # use has_path as a read-only check but still re-request to
+                # validate the path is still live before opening a link.
+                status("Path in cache (will verify via fresh request)")
+
+            status("Requesting path…")
+            RNS.Transport.request_path(dest_hash)
+
+            # Wait using BOTH mechanisms:
+            # 1. Clock.schedule_interval polls has_path() every 0.25s — catches
+            #    path-response packets which update the routing table but do NOT
+            #    trigger announce handlers.
+            # 2. _PathWatcher handles announce packets (also carry the identity).
+            # Whichever fires first cancels the other and continues the chain.
+
+            _path_resolved = [False]
+            path_poll      = [None]
+            path_timeout   = [None]
+            watcher        = [None]
+
+            def _resolve_path():
+                if _path_resolved[0]:
+                    return
+                _path_resolved[0] = True
+                if path_poll[0]:
+                    Clock.unschedule(path_poll[0])
+                    path_poll[0] = None
+                if path_timeout[0]:
+                    path_timeout[0].cancel()
+                    path_timeout[0] = None
+                if watcher[0]:
+                    try:
+                        RNS.Transport.deregister_announce_handler(watcher[0])
+                    except Exception:
+                        pass
+                    watcher[0] = None
                 _step_identity(dest_hash)
-            else:
-                status("No path cached — requesting…")
-                RNS.Transport.request_path(dest_hash)
 
-                # Register a path response callback so RNS wakes us when
-                # the path arrives — no polling loop, no sleep.
-                def _on_path_response(path_hash):
-                    if path_hash == dest_hash:
-                        status("Path resolved via callback")
-                        _step_identity(dest_hash)
+            def _poll_path(dt):
+                if RNS.Transport.has_path(dest_hash):
+                    status("Path resolved via path-response")
+                    _resolve_path()
+                    return False  # stop interval
 
-                # Schedule a timeout that fires if path never arrives
-                path_timeout_event = [None]
+            def _on_path_timeout(dt):
+                path_timeout[0] = None
+                if _path_resolved[0]:
+                    return
+                _path_resolved[0] = True
+                if path_poll[0]:
+                    Clock.unschedule(path_poll[0])
+                if watcher[0]:
+                    try:
+                        RNS.Transport.deregister_announce_handler(watcher[0])
+                    except Exception:
+                        pass
+                fail(f"[FAIL] Path not found after {LINK_TIMEOUT}s\n"
+                     f"  Node: {node_hex}\n"
+                     f"  Hub: {NODERAGE_HOST}:{NODERAGE_PORT}\n"
+                     f"  Is the server connected to the hub?")
 
-                def _on_path_timeout(dt):
-                    path_timeout_event[0] = None
-                    fail(
-                        f"[FAIL] Path not found after {LINK_TIMEOUT}s\n"
-                        f"  Node: {node_hex}\n"
-                        f"  Hub: {NODERAGE_HOST}:{NODERAGE_PORT}\n"
-                        f"  Interfaces up: {len(interfaces)}\n"
-                        f"  Is your server connected to Noderage? "
-                        f"Is your device connected to the internet?"
-                    )
+            class _PathWatcher:
+                aspect_filter = None
+                def received_announce(self_w, destination_hash, announced_identity,
+                                      app_data, **kw):
+                    if destination_hash == dest_hash:
+                        status("Path resolved via announce")
+                        _resolve_path()
 
-                path_timeout_event[0] = Clock.schedule_once(_on_path_timeout, LINK_TIMEOUT)
-
-                # RNS calls registered announce handlers when an announce
-                # (which carries path + identity) is received.  Use a one-shot
-                # announce handler that cancels the timeout and continues.
-                class _PathWatcher:
-                    aspect_filter = None
-                    def received_announce(self, destination_hash, announced_identity,
-                                          app_data, **kwargs):
-                        if destination_hash == dest_hash:
-                            if path_timeout_event[0]:
-                                path_timeout_event[0].cancel()
-                                path_timeout_event[0] = None
-                            RNS.Transport.deregister_announce_handler(self)
-                            status("Path resolved via announce")
-                            _step_identity(dest_hash)
-
-                RNS.Transport.register_announce_handler(_PathWatcher())
+            watcher[0] = _PathWatcher()
+            RNS.Transport.register_announce_handler(watcher[0])
+            path_poll[0]    = Clock.schedule_interval(_poll_path, 0.25)
+            path_timeout[0] = Clock.schedule_once(_on_path_timeout, LINK_TIMEOUT)
 
         except Exception as e:
             on_error(f"[EXCEPTION] {e}\n{traceback.format_exc()}")
@@ -822,266 +756,19 @@ class ReticulumClient:
 
 # ─── UI Widgets ───────────────────────────────────────────────────────────────
 
-class NodeDrawer(BoxLayout):
-    """Slide-out drawer showing announced nodes (overlay)."""
-    
-    def __init__(self, on_node_select, **kwargs):
-        super().__init__(orientation="vertical", **kwargs)
-        self.on_node_select = on_node_select
-        self.size_hint = (None, None)
-        self.width = dp(280)
-        self.height = Window.height
-        
-        # Header
-        header = BoxLayout(size_hint_y=None, height=dp(56))
-        with header.canvas.before:
-            Color(*NAV_COLOR)
-            header._bg = Rectangle(pos=header.pos, size=header.size)
-        header.bind(pos=lambda i, v: setattr(i._bg, 'pos', v),
-                    size=lambda i, v: setattr(i._bg, 'size', v))
-        
-        title = Label(
-            text="Discovered Nodes",
-            halign="left",
-            valign="middle",
-            font_size=sp(18),
-            bold=True,
-        )
-        title.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
-        header.add_widget(title)
-        
-        # Close button
-        close_btn = IconButton(
-            text="×",  # U+00D7 MULTIPLICATION SIGN (more widely supported)
-            size_hint_x=None,
-            width=dp(44),
-        )
-        close_btn.bind(on_press=self._close)
-        header.add_widget(close_btn)
-        
-        self.add_widget(header)
-        
-        # Scrollable node list
-        self._scroll = ScrollView(do_scroll_x=False)
-        self._node_list = BoxLayout(
-            orientation="vertical",
-            size_hint_y=None,
-            spacing=dp(2),
-            padding=dp(4),
-        )
-        self._node_list.bind(minimum_height=self._node_list.setter('height'))
-        self._scroll.add_widget(self._node_list)
-        self.add_widget(self._scroll)
-        
-        # Track displayed nodes
-        self._displayed_hashes = set()
-        
-        # Semi-transparent background overlay
-        self._overlay_color = Color(0, 0, 0, 0)
-        self._overlay_rect = None
-        
-        with self.canvas.before:
-            Color(*BG_COLOR)
-            self._bg = Rectangle(pos=self.pos, size=self.size)
-        self.bind(pos=self._upd_bg, size=self._upd_bg)
-        
-        # Bind to window height changes
-        Window.bind(size=self._on_window_resize)
-    
-    def _on_window_resize(self, window, size):
-        """Update drawer height when window resizes."""
-        self.height = size[1]
-    
-    def _upd_bg(self, *_):
-        self._bg.pos = self.pos
-        self._bg.size = self.size
-    
-    def _close(self, *_):
-        """Request drawer close via parent."""
-        if hasattr(self, 'parent') and hasattr(self.parent, 'toggle_drawer'):
-            self.parent.toggle_drawer()
-    
-    def add_node(self, node_info):
-        """Add a node to the list if not already displayed."""
-        node_hash = node_info.get("hash", "")
-        if node_hash in self._displayed_hashes:
-            return
-
-        self._displayed_hashes.add(node_hash)
-
-        # Create node card
-        card = BoxLayout(
-            orientation="vertical",
-            size_hint_y=None,
-            height=dp(72),
-            padding=dp(8),
-        )
-        with card.canvas.before:
-            Color(0.12, 0.15, 0.20, 1)
-            card._bg = Rectangle(pos=card.pos, size=card.size)
-        card.bind(pos=lambda i, v: setattr(i._bg, 'pos', v),
-                  size=lambda i, v: setattr(i._bg, 'size', v))
-
-        # Node name - use the name from node_info
-        name = node_info.get("name", "Unknown Node")
-        node_type = node_info.get("type", "unknown")
-        log(f"Adding node to UI: name='{name}', type={node_type}, hash={node_hash[:8]}...")
-        log(f"Full node_info: {node_info}")
-
-        # Display format: "Node Name" on first line, hash on second
-        name_lbl = Label(
-            text=name,
-            halign="left",
-            valign="middle",
-            font_size=sp(14),
-            bold=True,
-            color=FG_COLOR,
-            font_name=FONT_PATH,
-        )
-        name_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
-
-        # Node hash (shortened) with type info
-        hash_lbl = Label(
-            text=f"[{node_type}] {node_hash[:16]}...",
-            halign="left",
-            valign="top",
-            font_size=sp(10),
-            color=(0.6, 0.6, 0.6, 1),
-            font_name=FONT_PATH,
-        )
-        hash_lbl.bind(size=lambda i, v: setattr(i, 'text_size', i.size))
-        
-        info_layout = BoxLayout(orientation="vertical")
-        info_layout.add_widget(name_lbl)
-        info_layout.add_widget(hash_lbl)
-        
-        # Navigate button
-        nav_btn = Button(
-            text="Navigate →",
-            size_hint_x=None,
-            width=dp(100),
-            background_normal="",
-            background_down="",
-            background_color=BTN_COLOR,
-            color=LNK_COLOR,
-            font_size=sp(12),
-        )
-        nav_btn.bind(on_press=lambda i, h=node_hash: self._on_navigate(h))
-        
-        card.add_widget(info_layout)
-        card.add_widget(nav_btn)
-        
-        self._node_list.add_widget(card)
-    
-    def _on_navigate(self, node_hash):
-        """Navigate to selected node."""
-        if self.on_node_select:
-            self.on_node_select(node_hash)
-            self._close()
-    
-    def clear_nodes(self):
-        """Clear all displayed nodes."""
-        self._node_list.clear_widgets()
-        self._displayed_hashes.clear()
-
-
-class NavigationDrawer(FloatLayout):
-    """FloatLayout container that manages the slide-out drawer as an overlay."""
-    
-    def __init__(self, content, drawer, **kwargs):
-        super().__init__(**kwargs)
-        self.content_widget = content
-        self.drawer = drawer
-        self.drawer_open = False
-        self._touch_start_x = None
-        
-        # Add content first (background)
-        self.add_widget(self.content_widget)
-        # Add drawer on top (will be positioned off-screen)
-        self.add_widget(self.drawer)
-        
-        # Initial drawer position (off-screen left)
-        Clock.schedule_once(self._init_positions, 0.1)
-    
-    def _init_positions(self, dt=None):
-        """Initialize drawer position after layout is ready."""
-        self.drawer.pos = (-self.drawer.width, 0)
-        self.drawer.size_hint = (None, None)
-        self.drawer.height = self.height
-    
-    def toggle_drawer(self):
-        """Open or close the drawer with animation."""
-        if self.drawer_open:
-            self._close_drawer()
-        else:
-            self._open_drawer()
-    
-    def _open_drawer(self):
-        """Animate drawer open (overlay, doesn't resize content)."""
-        self.drawer_open = True
-        self.drawer.height = self.height
-        anim = Animation(pos=(0, 0), duration=0.25)
-        anim.start(self.drawer)
-    
-    def _close_drawer(self):
-        """Animate drawer closed."""
-        self.drawer_open = False
-        anim = Animation(pos=(-self.drawer.width, 0), duration=0.25)
-        anim.start(self.drawer)
-    
-    def on_touch_down(self, touch):
-        """Track touch for swipe gesture."""
-        self._touch_start_x = touch.x
-        return super().on_touch_down(touch)
-    
-    def on_touch_up(self, touch):
-        """Detect swipe gesture."""
-        if self._touch_start_x is not None:
-            dx = touch.x - self._touch_start_x
-            
-            # Swipe right to open (from left edge)
-            if dx > dp(50) and self._touch_start_x < dp(30):
-                if not self.drawer_open:
-                    self._open_drawer()
-            
-            # Swipe left to close (when drawer is open)
-            elif dx < -dp(50) and self.drawer_open:
-                self._close_drawer()
-            
-            # Tap outside drawer to close
-            elif self.drawer_open and touch.x > self.drawer.width:
-                self._close_drawer()
-        
-        self._touch_start_x = None
-        return super().on_touch_up(touch)
-    
-    def on_size(self, instance, value):
-        """Update drawer height when container resizes."""
-        if hasattr(self, 'drawer'):
-            self.drawer.height = self.height
-
-
 class IconButton(Button):
-    """A flat icon-style button using Unicode symbols.
-
-    Uses bundled JetBrains Mono Nerd Font for full Unicode glyph coverage
-    including arrows, symbols, and icons.
-    """
     def __init__(self, **kwargs):
-        # Set defaults before calling super() so passed kwargs can override
-        kwargs.setdefault('background_normal', '')
-        kwargs.setdefault('background_down', '')
-        kwargs.setdefault('background_color', BTN_COLOR)
-        kwargs.setdefault('color', FG_COLOR)
-        kwargs.setdefault('font_size', sp(28))
-        kwargs.setdefault('size_hint_x', None)
-        kwargs.setdefault('width', dp(52))
-        kwargs.setdefault('bold', False)
-        kwargs.setdefault('font_name', FONT_PATH)  # Bundled Nerd Font
-        kwargs.setdefault('halign', 'center')
-        kwargs.setdefault('valign', 'middle')
-        kwargs.setdefault('markup', False)
-
+        kwargs.setdefault("background_normal", "")
+        kwargs.setdefault("background_down", "")
+        kwargs.setdefault("background_color", BTN_COLOR)
+        kwargs.setdefault("color", FG_COLOR)
+        kwargs.setdefault("font_size", sp(28))
+        kwargs.setdefault("size_hint_x", None)
+        kwargs.setdefault("width", dp(52))
+        kwargs.setdefault("bold", False)
+        kwargs.setdefault("font_name", FONT_PATH)
+        kwargs.setdefault("halign", "center")
+        kwargs.setdefault("valign", "middle")
         super().__init__(**kwargs)
 
 
@@ -1090,35 +777,30 @@ class AddressBar(BoxLayout):
         super().__init__(orientation="horizontal", size_hint_y=None,
                          height=dp(48), spacing=dp(4), padding=[dp(4),dp(4)], **kwargs)
         self.on_navigate = on_navigate
-
         with self.canvas.before:
             Color(*NAV_COLOR)
             self._bg = Rectangle(pos=self.pos, size=self.size)
-        self.bind(pos=self._update_bg, size=self._update_bg)
-
-        self.back_btn    = IconButton(text="←", width=dp(44))  # U+2190 LEFTWARDS ARROW
-        self.fwd_btn     = IconButton(text="→", width=dp(44))  # U+2192 RIGHTWARDS ARROW
-        self.refresh_btn = IconButton(text="⟳", width=dp(44))  # U+27F3 CLOCKWISE GAPPED CIRCLE ARROW
-        self.go_btn      = IconButton(text="➜", width=dp(44))  # U+279C HEAVY ROUND-TIPPED RIGHTWARDS ARROW
-        self.address     = TextInput(
+        self.bind(pos=self._upd, size=self._upd)
+        self.back_btn    = IconButton(text="←", width=dp(44))
+        self.fwd_btn     = IconButton(text="→", width=dp(44))
+        self.refresh_btn = IconButton(text="⟳", width=dp(44))
+        self.go_btn      = IconButton(text="➜", width=dp(44))
+        self.address = TextInput(
             text="", multiline=False, font_size=sp(14),
             background_color=(0.12,0.15,0.20,1),
-            foreground_color=FG_COLOR,
-            cursor_color=LNK_COLOR,
+            foreground_color=FG_COLOR, cursor_color=LNK_COLOR,
             padding=[dp(8), dp(10)],
         )
-
         for w in (self.back_btn, self.fwd_btn, self.refresh_btn, self.address, self.go_btn):
             self.add_widget(w)
-
         self.address.bind(on_text_validate=self._go)
         self.go_btn.bind(on_press=self._go)
 
-    def _update_bg(self, *_):
-        self._bg.pos  = self.pos
+    def _upd(self, *_):
+        self._bg.pos = self.pos
         self._bg.size = self.size
 
-    def _go(self, instance):
+    def _go(self, *_):
         self.on_navigate(self.address.text.strip())
 
     def set_url(self, url):
@@ -1127,83 +809,183 @@ class AddressBar(BoxLayout):
 
 class StatusBar(Label):
     def __init__(self, **kwargs):
-        super().__init__(size_hint_y=None, height=dp(24),
-                         font_size=sp(11), halign="left",
-                         color=(0.6, 0.6, 0.6, 1),
-                         text_size=(Window.width, None),
-                         **kwargs)
+        super().__init__(size_hint_y=None, height=dp(24), font_size=sp(11),
+                         halign="left", color=(0.6,0.6,0.6,1),
+                         text_size=(Window.width, None), **kwargs)
         with self.canvas.before:
             Color(0.08, 0.08, 0.10, 1)
             self._bg = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._upd, size=self._upd)
-        self.bind(size=lambda *_: setattr(self, 'text_size', (self.width, None)))
 
     def _upd(self, *_):
-        self._bg.pos  = self.pos
+        self._bg.pos = self.pos
         self._bg.size = self.size
-
-
-class MicronLabel(Label):
-    """A single line of Micron-rendered text."""
-    pass
+        self.text_size = (self.width, None)
 
 
 class LinkButton(Button):
-    """A tappable link within a Micron page."""
     def __init__(self, label, path, node, on_tap, **kwargs):
         super().__init__(
             text=f"  ▸ {label}",
             background_normal="", background_down="",
-            background_color=(0,0,0,0),
-            color=LNK_COLOR,
+            background_color=(0,0,0,0), color=LNK_COLOR,
             halign="left", valign="middle",
-            size_hint_y=None, height=dp(34),
-            font_size=sp(14),
-            **kwargs
-        )
-        self.path     = path
-        self.node     = node
-        self.on_tap   = on_tap
+            size_hint_y=None, height=dp(34), font_size=sp(14), **kwargs)
+        self.path, self.node, self.on_tap = path, node, on_tap
         self.text_size = (None, None)
-        self.bind(size=lambda *_: setattr(self, 'text_size', (self.width, None)))
+        self.bind(size=lambda *_: setattr(self, "text_size", (self.width, None)))
         self.bind(on_press=self._pressed)
 
     def _pressed(self, *_):
         self.background_color = BTN_PRESS
-        Clock.schedule_once(lambda *_: setattr(self, 'background_color', (0,0,0,0)), 0.15)
+        Clock.schedule_once(lambda *_: setattr(self, "background_color", (0,0,0,0)), 0.15)
         self.on_tap(self.node, self.path)
 
 
-class PageView(ScrollView):
-    """Scrollable page content area rendering parsed Micron elements."""
+class NodeDrawer(BoxLayout):
+    def __init__(self, on_node_select, **kwargs):
+        super().__init__(orientation="vertical", size_hint=(None,None),
+                         width=dp(280), height=Window.height, **kwargs)
+        self.on_node_select = on_node_select
+        self._displayed_hashes = set()
 
+        with self.canvas.before:
+            Color(*BG_COLOR)
+            self._bg = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._upd, size=self._upd)
+        Window.bind(size=lambda w, s: setattr(self, "height", s[1]))
+
+        # Header
+        hdr = BoxLayout(size_hint_y=None, height=dp(56))
+        with hdr.canvas.before:
+            Color(*NAV_COLOR)
+            hdr._bg = Rectangle(pos=hdr.pos, size=hdr.size)
+        hdr.bind(pos=lambda i,v: setattr(i._bg,"pos",v),
+                 size=lambda i,v: setattr(i._bg,"size",v))
+        ttl = Label(text="Discovered Nodes", halign="left", valign="middle",
+                    font_size=sp(18), bold=True)
+        ttl.bind(size=lambda i,v: setattr(i,"text_size",i.size))
+        hdr.add_widget(ttl)
+        close = IconButton(text="×", width=dp(44))
+        close.bind(on_press=self._close)
+        hdr.add_widget(close)
+        self.add_widget(hdr)
+
+        # Node list
+        self._scroll = ScrollView(do_scroll_x=False)
+        self._node_list = BoxLayout(orientation="vertical", size_hint_y=None,
+                                    spacing=dp(2), padding=dp(4))
+        self._node_list.bind(minimum_height=self._node_list.setter("height"))
+        self._scroll.add_widget(self._node_list)
+        self.add_widget(self._scroll)
+
+    def _upd(self, *_):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
+
+    def _close(self, *_):
+        if hasattr(self, "parent") and hasattr(self.parent, "toggle_drawer"):
+            self.parent.toggle_drawer()
+
+    def add_node(self, node_info):
+        nh = node_info.get("hash", "")
+        if nh in self._displayed_hashes:
+            return
+        self._displayed_hashes.add(nh)
+
+        card = BoxLayout(orientation="horizontal", size_hint_y=None,
+                         height=dp(64), padding=dp(8), spacing=dp(8))
+        with card.canvas.before:
+            Color(0.12, 0.15, 0.20, 1)
+            card._bg = Rectangle(pos=card.pos, size=card.size)
+        card.bind(pos=lambda i,v: setattr(i._bg,"pos",v),
+                  size=lambda i,v: setattr(i._bg,"size",v))
+
+        info = BoxLayout(orientation="vertical")
+        name_lbl = Label(text=node_info.get("name","?"), halign="left", valign="middle",
+                         font_size=sp(14), bold=True, color=FG_COLOR, font_name=FONT_PATH)
+        name_lbl.bind(size=lambda i,v: setattr(i,"text_size",i.size))
+        hash_lbl = Label(text=f"{nh[:16]}…", halign="left", valign="top",
+                         font_size=sp(10), color=(0.6,0.6,0.6,1), font_name=FONT_PATH)
+        hash_lbl.bind(size=lambda i,v: setattr(i,"text_size",i.size))
+        info.add_widget(name_lbl)
+        info.add_widget(hash_lbl)
+
+        nav = Button(text="Go →", size_hint_x=None, width=dp(60),
+                     background_normal="", background_down="",
+                     background_color=BTN_COLOR, color=LNK_COLOR, font_size=sp(12))
+        nav.bind(on_press=lambda i, h=nh: self._navigate(h))
+        card.add_widget(info)
+        card.add_widget(nav)
+        self._node_list.add_widget(card)
+
+    def _navigate(self, node_hash):
+        if self.on_node_select:
+            self.on_node_select(node_hash)
+            self._close()
+
+    def clear_nodes(self):
+        self._node_list.clear_widgets()
+        self._displayed_hashes.clear()
+
+
+class NavigationDrawer(FloatLayout):
+    def __init__(self, content, drawer, **kwargs):
+        super().__init__(**kwargs)
+        self.drawer = drawer
+        self.drawer_open = False
+        self._touch_start_x = None
+        self.add_widget(content)
+        self.add_widget(drawer)
+        Clock.schedule_once(lambda dt: setattr(drawer, "pos", (-drawer.width, 0)), 0.1)
+
+    def toggle_drawer(self):
+        if self.drawer_open:
+            self.drawer_open = False
+            Animation(pos=(-self.drawer.width, 0), duration=0.25).start(self.drawer)
+        else:
+            self.drawer_open = True
+            self.drawer.height = self.height
+            Animation(pos=(0, 0), duration=0.25).start(self.drawer)
+
+    def on_touch_down(self, touch):
+        self._touch_start_x = touch.x
+        return super().on_touch_down(touch)
+
+    def on_touch_up(self, touch):
+        if self._touch_start_x is not None:
+            dx = touch.x - self._touch_start_x
+            if dx > dp(50) and self._touch_start_x < dp(30) and not self.drawer_open:
+                self.toggle_drawer()
+            elif dx < -dp(50) and self.drawer_open:
+                self.toggle_drawer()
+            elif self.drawer_open and touch.x > self.drawer.width:
+                self.toggle_drawer()
+        self._touch_start_x = None
+        return super().on_touch_up(touch)
+
+    def on_size(self, *_):
+        if hasattr(self, "drawer"):
+            self.drawer.height = self.height
+
+
+class PageView(ScrollView):
     def __init__(self, on_link_tap, **kwargs):
-        super().__init__(
-            do_scroll_x=False,
-            bar_width=dp(4),
-            bar_color=LNK_COLOR,
-            bar_inactive_color=(0.3,0.3,0.3,0.5),
-            **kwargs
-        )
+        super().__init__(do_scroll_x=False, bar_width=dp(4),
+                         bar_color=LNK_COLOR, bar_inactive_color=(0.3,0.3,0.3,0.5),
+                         **kwargs)
         self.on_link_tap = on_link_tap
-        self.container   = BoxLayout(
-            orientation="vertical",
-            size_hint_y=None,
-            spacing=dp(2),
-            padding=[dp(12), dp(8)],
-        )
+        self.container = BoxLayout(orientation="vertical", size_hint_y=None,
+                                   spacing=dp(2), padding=[dp(12), dp(8)])
         self.container.bind(minimum_height=self.container.setter("height"))
         self.add_widget(self.container)
-        self._set_bg()
-
-    def _set_bg(self):
         with self.canvas.before:
             Color(*BG_COLOR)
             self._bg = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._upd, size=self._upd)
 
     def _upd(self, *_):
-        self._bg.pos  = self.pos
+        self._bg.pos = self.pos
         self._bg.size = self.size
 
     @mainthread
@@ -1212,114 +994,94 @@ class PageView(ScrollView):
         self.scroll_y = 1
 
         for el in elements:
-            etype = el.get("type")
+            t = el.get("type")
 
-            if etype == "blank":
+            if t == "blank":
                 self.container.add_widget(Widget(size_hint_y=None, height=dp(6)))
 
-            elif etype == "divider":
-                w = Widget(size_hint_y=None, height=dp(1))
-                with w.canvas.before:
-                    _clr  = Color(0.3, 0.4, 0.5, 1)
-                    _rect = Rectangle(pos=w.pos, size=w.size)
-                def _upd_divider(inst, _r=_rect):
-                    _r.pos  = inst.pos
-                    _r.size = inst.size
-                w.bind(pos=_upd_divider, size=_upd_divider)
-                self.container.add_widget(w)
+            elif t == "divider":
+                div_char = el.get("char")
+                if div_char:
+                    lbl = Label(text=div_char * 40, font_size=sp(12), halign="left",
+                                valign="top", size_hint_y=None, height=dp(18),
+                                color=(0.4, 0.5, 0.6, 1))
+                    lbl.bind(width=lambda i,w: setattr(i,"text_size",(w,None)))
+                    self.container.add_widget(lbl)
+                else:
+                    w = Widget(size_hint_y=None, height=dp(1))
+                    with w.canvas.before:
+                        Color(0.3, 0.4, 0.5, 1)
+                        r = Rectangle(pos=w.pos, size=w.size)
+                    w.bind(pos=lambda i,v,_r=r: setattr(_r,"pos",v),
+                           size=lambda i,v,_r=r: setattr(_r,"size",v))
+                    self.container.add_widget(w)
 
-            elif etype == "link":
-                btn = LinkButton(
-                    label=el["label"],
-                    path=el["path"],
-                    node=el.get("node",""),
-                    on_tap=self.on_link_tap,
-                )
+            elif t == "link":
+                btn = LinkButton(label=el["label"], path=el["path"],
+                                 node=el.get("node",""), on_tap=self.on_link_tap)
                 self.container.add_widget(btn)
 
-            elif etype == "text":
+            elif t == "text":
                 heading  = el.get("heading", 0)
                 align    = el.get("align", "left")
                 segments = el.get("segments", [])
 
-                # Build markup string for Kivy
                 markup_parts = []
+                non_default_bgs = []
                 for seg in segments:
-                    txt = seg["text"].replace("&","&amp;").replace("[","[[").replace("]","]]")
+                    txt = (seg["text"].replace("&","&amp;")
+                                     .replace("[","[[").replace("]","]]"))
                     r,g,b,a = seg["fg"]
-                    hex_color = "#{:02x}{:02x}{:02x}".format(
-                        int(r*255), int(g*255), int(b*255))
-                    part = f"[color={hex_color}]"
-                    if seg.get("bold"):
-                        part += "[b]"
-                    if seg.get("italic"):
-                        part += "[i]"
-                    if seg.get("underline"):
-                        part += "[u]"
-                    part += txt
-                    if seg.get("underline"):
-                        part += "[/u]"
-                    if seg.get("italic"):
-                        part += "[/i]"
-                    if seg.get("bold"):
-                        part += "[/b]"
-                    part += "[/color]"
-                    markup_parts.append(part)
+                    col = "#{:02x}{:02x}{:02x}".format(int(r*255),int(g*255),int(b*255))
+                    p = f"[color={col}]"
+                    if seg.get("bold"):      p += "[b]"
+                    if seg.get("italic"):    p += "[i]"
+                    if seg.get("underline"): p += "[u]"
+                    p += txt
+                    if seg.get("underline"): p += "[/u]"
+                    if seg.get("italic"):    p += "[/i]"
+                    if seg.get("bold"):      p += "[/b]"
+                    p += "[/color]"
+                    markup_parts.append(p)
+                    if seg.get("bg") and seg["bg"] != BG_COLOR:
+                        non_default_bgs.append(seg["bg"])
 
-                markup = "".join(markup_parts)
-
-                fs = {0: sp(14), 1: sp(20), 2: sp(17), 3: sp(15)}[heading]
-                lbl = Label(
-                    text=markup,
-                    markup=True,
-                    font_size=fs,
-                    halign=align,
-                    valign="top",
-                    size_hint_y=None,
-                    color=FG_COLOR,
-                )
-                # Allow text to wrap
+                fs = {0:sp(14), 1:sp(20), 2:sp(17), 3:sp(15)}[heading]
+                lbl = Label(text="".join(markup_parts), markup=True,
+                            font_size=fs, halign=align, valign="top",
+                            size_hint_y=None, color=FG_COLOR)
                 lbl.bind(
-                    width=lambda inst, w: setattr(inst, 'text_size', (w, None)),
-                    texture_size=lambda inst, ts: setattr(inst, 'height', ts[1] + dp(2))
-                )
+                    width=lambda i,w: setattr(i,"text_size",(w,None)),
+                    texture_size=lambda i,ts: setattr(i,"height",ts[1]+dp(2)))
                 lbl.text_size = (self.width - dp(24), None)
+
+                if non_default_bgs:
+                    bg = non_default_bgs[0]
+                    with lbl.canvas.before:
+                        Color(*bg)
+                        bgr = Rectangle(pos=lbl.pos, size=lbl.size)
+                    lbl.bind(pos=lambda i,v,r=bgr: setattr(r,"pos",v),
+                             size=lambda i,v,r=bgr: setattr(r,"size",v))
+
                 self.container.add_widget(lbl)
 
-            elif etype == "literal":
-                # Render literal/preformatted text (no markup processing)
-                content = el.get("content", "")
-                # Escape markup characters for literal display
-                safe_text = content.replace("[", "[[").replace("]", "]]")
-                lbl = Label(
-                    text=safe_text,
-                    markup=True,  # Still use markup to escape [[ ]]
-                    font_size=sp(12),
-                    halign="left",
-                    valign="top",
-                    size_hint_y=None,
-                    color=(0.7, 0.7, 0.7, 1),  # Dimmer color for literal text
-                    font_name=FONT_PATH,  # Use bundled JetBrains Mono Nerd Font (monospace)
-                )
+            elif t == "literal":
+                safe = el.get("content","").replace("[","[[").replace("]","]]")
+                lbl = Label(text=safe, markup=True, font_size=sp(12),
+                            halign="left", valign="top", size_hint_y=None,
+                            color=(0.7,0.7,0.7,1), font_name=FONT_PATH)
                 lbl.bind(
-                    width=lambda inst, w: setattr(inst, 'text_size', (w, None)),
-                    texture_size=lambda inst, ts: setattr(inst, 'height', ts[1] + dp(2))
-                )
+                    width=lambda i,w: setattr(i,"text_size",(w,None)),
+                    texture_size=lambda i,ts: setattr(i,"height",ts[1]+dp(2)))
                 lbl.text_size = (self.width - dp(24), None)
                 self.container.add_widget(lbl)
 
     @mainthread
     def show_status(self, msg, color=FG_COLOR):
         self.container.clear_widgets()
-        lbl = Label(
-            text=msg,
-            markup=True,
-            color=color,
-            halign="center",
-            valign="middle",
-            size_hint=(1, 1),
-        )
-        lbl.bind(size=lambda inst,_: setattr(inst,'text_size',inst.size))
+        lbl = Label(text=msg, markup=True, color=color,
+                    halign="center", valign="middle", size_hint=(1,1))
+        lbl.bind(size=lambda i,_: setattr(i,"text_size",i.size))
         self.container.add_widget(lbl)
 
 
@@ -1329,206 +1091,161 @@ class RetiBrowserApp(App):
     title = "RetiBrowser – Reticulum Micron Browser"
 
     def build(self):
-        log("App build() starting...")
+        log("build() starting…")
         try:
             Window.clearcolor = BG_COLOR
-
-            # History
-            self._history      = []
-            self._hist_pos     = -1
+            self._history, self._hist_pos = [], -1
             self._current_node = DEFAULT_NODE
 
-            # Reticulum client with announce callback
-            log("Creating ReticulumClient...")
             self._rns = ReticulumClient(on_announce_callback=self._on_announce_received)
-
-            # Create node drawer
-            log("Creating node drawer...")
             self._node_drawer = NodeDrawer(on_node_select=self._navigate_to_node)
 
-            # Main content layout
-            log("Creating main content...")
-            main_content = BoxLayout(orientation="vertical")
-
-            # Address / nav bar - add menu button
-            log("Creating address bar...")
+            main = BoxLayout(orientation="vertical")
             self._addrbar = AddressBar(on_navigate=self._navigate_url)
             self._addrbar.back_btn.bind(on_press=self._go_back)
             self._addrbar.fwd_btn.bind(on_press=self._go_forward)
             self._addrbar.refresh_btn.bind(on_press=self._refresh)
-            
-            # Add menu button to open drawer
-            menu_btn = IconButton(
-                text="≡",  # U+2261 IDENTICAL TO (hamburger menu)
-                width=dp(44),
-            )
-            menu_btn.bind(on_press=lambda *_: self._toggle_drawer())
-            self._addrbar.add_widget(menu_btn, index=0)
 
-            # Page view
-            log("Creating page view...")
-            self._pageview = PageView(on_link_tap=self._on_link_tap)
+            menu = IconButton(text="≡", width=dp(44))
+            menu.bind(on_press=lambda *_: self._nav_drawer.toggle_drawer())
+            self._addrbar.add_widget(menu, index=0)
 
-            # Status bar
-            log("Creating status bar...")
+            self._pageview  = PageView(on_link_tap=self._on_link_tap)
             self._statusbar = StatusBar(text="  Initialising Reticulum…")
 
-            log("Adding widgets to main content...")
-            main_content.add_widget(self._addrbar)
-            main_content.add_widget(self._pageview)
-            main_content.add_widget(self._statusbar)
+            main.add_widget(self._addrbar)
+            main.add_widget(self._pageview)
+            main.add_widget(self._statusbar)
 
-            # Wrap in navigation drawer container
-            log("Creating navigation drawer container...")
-            self._nav_drawer = NavigationDrawer(
-                content=main_content,
-                drawer=self._node_drawer,
-            )
-
-            # Start Reticulum on main thread (required for signals), then load default page
-            log("Scheduling Reticulum init...")
+            self._nav_drawer = NavigationDrawer(content=main, drawer=self._node_drawer)
             Clock.schedule_once(self._init_rns_main, 0.5)
-
-            log("App build() complete, returning root")
+            log("build() complete")
             return self._nav_drawer
         except Exception as e:
-            log(f"Build error: {e}")
-            log(traceback.format_exc())
+            log(f"build error: {e}\n{traceback.format_exc()}")
             raise
-
-    def _toggle_drawer(self):
-        """Toggle the navigation drawer."""
-        self._nav_drawer.toggle_drawer()
-
-    def _on_announce_received(self, node_info):
-        """Called when a node announce is received."""
-        log(f"Announce received: {node_info.get('name', 'Unknown')} ({node_info.get('hash', '')[:8]}...)")
-        self._node_drawer.add_node(node_info)
-    
-    def _load_existing_nodes(self, dt=None):
-        """Load existing announced nodes from RNS."""
-        try:
-            nodes = self._rns.get_announced_nodes()
-            for node in nodes:
-                self._node_drawer.add_node(node)
-        except Exception as e:
-            log(f"Error loading existing nodes: {e}")
-
-    def _navigate_to_node(self, node_hash):
-        """Navigate to a selected node from the drawer."""
-        self._load_page(node_hash, DEFAULT_PAGE, push_history=True)
 
     # ── Reticulum init ────────────────────────────────────────────────────────
 
     def _init_rns_main(self, dt=None):
         try:
-            log("Starting Reticulum initialization on main thread...")
-            self._set_status(f"Connecting to Noderage Hub at {NODERAGE_HOST}:{NODERAGE_PORT}…")
+            log("Starting Reticulum…")
+            self._set_status(f"Connecting to {NODERAGE_HOST}:{NODERAGE_PORT}…")
             self._rns.start(NODERAGE_HOST, NODERAGE_PORT)
-            log("Reticulum started successfully")
-            self._set_status("Connected – settling interface…")
-
-            # Use a thread for the settlement delay and initial load
-            threading.Thread(target=self._init_settle_and_load, daemon=True).start()
-
+            log("Reticulum started")
+            # Poll for interface online — start in daemon thread so it can
+            # call Clock.schedule_interval on the Kivy main loop safely
+            threading.Thread(target=self._begin_iface_poll, daemon=True).start()
         except Exception as e:
-            log(f"Init error: {e}")
-            log(traceback.format_exc())
+            log(f"Init error: {e}\n{traceback.format_exc()}")
             self._set_status(f"Init error: {e}")
             self._pageview.show_status(
-                f"[color=#ff5555]Failed to start Reticulum:\n{e}[/color]\n\n"
-                f"[color=#888888]{traceback.format_exc()}[/color]",
-                color=(1,0.33,0.33,1)
-            )
+                f"[color=#ff5555]Failed to start Reticulum:\n{e}[/color]",
+                color=(1,0.33,0.33,1))
 
-    def _init_settle_and_load(self):
-        # No sleep — schedule the initial page load on the Kivy clock so the
-        # UI thread handles it after the interface has had one event loop cycle.
-        Clock.schedule_once(self._do_initial_load, 0.5)
+    def _begin_iface_poll(self):
+        """Schedule the interface poll from a thread (Clock is thread-safe)."""
+        self._iface_wait_start = time.time()
+        Clock.schedule_interval(self._wait_for_interface, 0.25)
+
+    def _wait_for_interface(self, dt):
+        """Called every 0.25s on the Kivy main thread until interface is online."""
+        elapsed = time.time() - self._iface_wait_start
+        interfaces = getattr(RNS.Transport, "interfaces", [])
+        online = [i for i in interfaces if getattr(i, "online", False)]
+
+        if online:
+            names = ", ".join(getattr(i,"name","?") for i in online)
+            log(f"Interface online after {elapsed:.1f}s: {names}")
+            self._set_status("Connected — loading page…")
+            Clock.unschedule(self._wait_for_interface)
+            self._do_initial_load()
+            return False
+
+        if elapsed > 30:
+            log("Interface never came online after 30s")
+            Clock.unschedule(self._wait_for_interface)
+            self._set_status("Connection failed — check network")
+            self._pageview.show_status(
+                f"[color=#ff5555]Could not connect to {NODERAGE_HOST}:{NODERAGE_PORT} "
+                f"after 30s[/color]\n[color=#aaaaaa]Check your internet connection.[/color]",
+                color=(1,0.33,0.33,1))
+            return False
+
+        if int(elapsed) % 2 == 0 and elapsed > 0:
+            self._set_status(f"Connecting to {NODERAGE_HOST}… ({int(elapsed)}s)")
 
     def _do_initial_load(self, dt=None):
         try:
-            log("Loading default page...")
             self._load_page(DEFAULT_NODE, DEFAULT_PAGE, push_history=True)
         except Exception as e:
             log(f"Initial load error: {e}")
             self._set_status(f"Load error: {e}")
 
+    # ── Announce ──────────────────────────────────────────────────────────────
+
+    def _on_announce_received(self, node_info):
+        log(f"Announce: {node_info.get('name','?')} ({node_info.get('hash','')[:8]}…)")
+        self._node_drawer.add_node(node_info)
+
+    def _navigate_to_node(self, node_hash):
+        self._load_page(node_hash, DEFAULT_PAGE, push_history=True)
+
     # ── Navigation ────────────────────────────────────────────────────────────
 
     def _navigate_url(self, url):
-        """Parse a URL typed in the address bar. Formats:
-           nodeaddr:/page/path.mu
-           /page/path.mu            (uses current node)
-           nodeaddr                 (loads index page)
-        """
         url = url.strip()
         if ":" in url and not url.startswith("/"):
-            parts = url.split(":", 1)
-            node  = parts[0].strip()
-            path  = parts[1].strip()
+            node, path = url.split(":", 1)
         elif url.startswith("/"):
-            node = self._current_node
-            path = url
+            node, path = self._current_node, url
         else:
-            node = url
-            path = DEFAULT_PAGE
-        self._load_page(node, path, push_history=True)
+            node, path = url, DEFAULT_PAGE
+        self._load_page(node.strip(), path.strip(), push_history=True)
 
     def _on_link_tap(self, node_hex, page_path):
-        if not node_hex:
-            node_hex = self._current_node
-        self._load_page(node_hex, page_path, push_history=True)
+        self._load_page(node_hex or self._current_node, page_path, push_history=True)
 
     def _go_back(self, *_):
         if self._hist_pos > 0:
             self._hist_pos -= 1
-            node, path = self._history[self._hist_pos]
-            self._load_page(node, path, push_history=False)
+            n, p = self._history[self._hist_pos]
+            self._load_page(n, p, push_history=False)
 
     def _go_forward(self, *_):
         if self._hist_pos < len(self._history) - 1:
             self._hist_pos += 1
-            node, path = self._history[self._hist_pos]
-            self._load_page(node, path, push_history=False)
+            n, p = self._history[self._hist_pos]
+            self._load_page(n, p, push_history=False)
 
     def _refresh(self, *_):
         if self._history:
-            node, path = self._history[self._hist_pos]
-            self._load_page(node, path, push_history=False)
+            n, p = self._history[self._hist_pos]
+            self._load_page(n, p, push_history=False)
 
     # ── Page loading ──────────────────────────────────────────────────────────
 
     def _load_page(self, node_hex, page_path, push_history=True):
-        # Normalise
         node_hex  = node_hex.strip().lower()
         page_path = page_path.strip()
         if not page_path.startswith("/"):
             page_path = "/page/" + page_path
-
         self._current_node = node_hex
 
-        # Update address bar
-        url = f"{node_hex}:{page_path}"
-        Clock.schedule_once(lambda *_: self._addrbar.set_url(url), 0)
+        Clock.schedule_once(lambda *_: self._addrbar.set_url(f"{node_hex}:{page_path}"), 0)
 
-        # Update history
         if push_history:
-            # Trim forward history
             self._history = self._history[:self._hist_pos+1]
             self._history.append((node_hex, page_path))
             self._hist_pos = len(self._history) - 1
 
         self._update_nav_buttons()
         self._set_status(f"Fetching {page_path} from {node_hex[:8]}…")
-        self._pageview.show_status("[color=#aaaaaa]Loading page…[/color]")
-
-        self._rns.fetch_page(
-            node_hex, page_path,
-            on_done     = self._on_page_done,
-            on_error    = self._on_page_error,
-            on_progress = self._on_progress,
-        )
+        self._pageview.show_status("[color=#aaaaaa]Loading…[/color]")
+        self._rns.fetch_page(node_hex, page_path,
+                             on_done=self._on_page_done,
+                             on_error=self._on_page_error,
+                             on_progress=self._on_progress)
 
     @mainthread
     def _update_nav_buttons(self):
@@ -1538,33 +1255,24 @@ class RetiBrowserApp(App):
             BTN_COLOR if self._hist_pos < len(self._history)-1 else (0.08,0.10,0.14,1)
 
     def _on_progress(self, msg):
-        # msg is now either a diagnostic string or a numeric pct from progress_updated
-        if isinstance(msg, int):
-            self._set_status(f"Downloading… {msg}%")
-        else:
-            self._set_status(str(msg))
+        self._set_status(f"Downloading… {msg}%" if isinstance(msg, int) else str(msg))
 
     def _on_page_done(self, content):
         self._set_status("Page loaded")
-        elements = parse_micron(content)
-        self._pageview.show_elements(elements)
+        self._pageview.show_elements(parse_micron(content))
 
     def _on_page_error(self, msg):
-        self._set_status(f"Error: {msg}")
+        self._set_status(f"Error: {msg[:80]}")
         self._pageview.show_status(
             f"[color=#ff5555]{msg}[/color]\n\n"
-            "[color=#888888]Check your network connection and node address.[/color]",
-            color=(1,0.33,0.33,1)
-        )
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
+            "[color=#888888]Check connection and node address.[/color]",
+            color=(1,0.33,0.33,1))
 
     @mainthread
     def _set_status(self, msg):
         self._statusbar.text = f"  {msg}"
 
     def on_stop(self):
-        """Clean up Reticulum on app exit to avoid socket leaks."""
         try:
             with self._rns._lock:
                 if self._rns._active_link:
