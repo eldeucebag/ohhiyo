@@ -67,8 +67,8 @@ def _init_font():
 _init_font()
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-NODERAGE_HOST = "rns.michmesh.net"
-NODERAGE_PORT = 7822
+NODERAGE_HOST = "rns01.ohiomesh.net"
+NODERAGE_PORT = 4242
 DEFAULT_NODE  = "fad4f4c59b38f341d357383593c41bd8"
 DEFAULT_PAGE  = "/page/index.mu"
 PAGE_TIMEOUT  = 30
