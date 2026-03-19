@@ -397,11 +397,13 @@ def parse_micron(text):
 class AnnounceHandler:
     """Receives RNS announce packets and extracts node info."""
 
-    aspect_filter = None  # Accept all aspects (must be None, not "nomadnetwork")
+    aspect_filter = "nomadnetwork.node"  # Only NomadNet page nodes
 
     def __init__(self, on_announce_callback=None):
         self.on_announce_callback = on_announce_callback
         self._announced_nodes = {}
+        # destination_hash (bytes) -> RNS.Identity; keyed by dest hash not identity hash
+        self._identities = {}
 
     def received_announce(self, destination_hash, announced_identity, app_data,
                           announce_packet_hash=None, is_path_response=False):
@@ -458,6 +460,8 @@ class AnnounceHandler:
                 "type":         info.get("type", "unknown"),
             }
             self._announced_nodes[node_hash] = node_record
+            if announced_identity:
+                self._identities[destination_hash] = announced_identity
             log(f"Announce: {name} ({node_hash[:8]}…)")
 
             if self.on_announce_callback:
@@ -468,6 +472,10 @@ class AnnounceHandler:
 
     def get_announced_nodes(self):
         return list(self._announced_nodes.values())
+
+    def get_identity(self, dest_hash_bytes):
+        """Return the Identity for a destination hash bytes object."""
+        return self._identities.get(dest_hash_bytes)
 
 
 class ReticulumClient:
@@ -583,13 +591,18 @@ class ReticulumClient:
                              for i in interfaces))
 
             def _step_identity(dh):
-                identity = RNS.Identity.recall(dh)
+                # Primary: look up the identity we stored when the announce arrived.
+                # Identity.recall() takes an IDENTITY hash, not a destination hash.
+                # Passing dest_hash to recall() looks up the wrong key and fails.
+                identity = self.announce_handler.get_identity(dh)
+                if identity is None:
+                    # Fallback: try recall in case RNS cached it locally
+                    identity = RNS.Identity.recall(dh)
                 if not identity:
-                    fail(f"[FAIL] Identity not recalled for {RNS.hexrep(dh,delimit=False)[:8]}…\n"
-                         f"  Server may not be announcing. Check server log.")
+                    fail(f"[FAIL] Identity not found for {RNS.hexrep(dh,delimit=False)[:8]}…\n"
+                         f"  Node may not have announced recently.")
                     return
-                status(f"Identity recalled: {RNS.hexrep(identity.hash,delimit=False)[:8]}…")
-                # Note: identity.hash ≠ dest_hash by design (dest includes app+aspects)
+                status(f"Identity: {RNS.hexrep(identity.hash,delimit=False)[:8]}…")
                 _step_open_link(identity, dh)
 
             def _step_open_link(identity, dh):
@@ -664,11 +677,11 @@ class ReticulumClient:
                 )
 
             # ── Start the chain ───────────────────────────────────────────────
-            # Fast path: identity already in cache from a recent announce.
-            # Skip path discovery entirely and open the link immediately.
-            # This is the normal case for nodes visible in the drawer —
-            # their identity arrived with the announce packet.
-            if RNS.Identity.recall(dest_hash) is not None:
+            # Fast path: if we have the identity from a recent announce,
+            # open the link immediately. Do NOT use Identity.recall(dest_hash)
+            # here — recall() takes an identity hash but dest_hash is a
+            # destination hash. They are different values.
+            if self.announce_handler.get_identity(dest_hash) is not None:
                 status("Identity already known — opening link directly")
                 _step_identity(dest_hash)
                 return
@@ -720,19 +733,13 @@ class ReticulumClient:
                 _step_identity(dest_hash)
 
             def _poll_path(dt):
-                # Check for identity (arrives with announce after path resolves)
-                if RNS.Identity.recall(dest_hash) is not None:
-                    status("Identity received — proceeding")
+                # Use stored identity dict, not Identity.recall(dest_hash).
+                # recall() takes an identity hash; dest_hash is a destination hash.
+                if self.announce_handler.get_identity(dest_hash) is not None:
+                    status("Identity received via announce — proceeding")
                     _resolve_path()
                     return False
-                # Also accept path-only response if identity somehow already known
-                if RNS.Transport.has_path(dest_hash):
-                    identity = RNS.Identity.recall(dest_hash)
-                    if identity:
-                        status("Path + identity resolved")
-                        _resolve_path()
-                        return False
-                    # Path known but no identity yet — keep waiting for announce
+                # Path known but no identity yet — keep waiting for announce
 
             def _on_path_timeout(dt):
                 path_timeout[0] = None
@@ -752,7 +759,7 @@ class ReticulumClient:
                      f"  Is the server connected to the hub?")
 
             class _PathWatcher:
-                aspect_filter = None
+                aspect_filter = "nomadnetwork.node"
                 def received_announce(self_w, destination_hash, announced_identity,
                                       app_data, **kw):
                     if destination_hash == dest_hash:
@@ -949,6 +956,7 @@ class NavigationDrawer(FloatLayout):
         self.drawer = drawer
         self.drawer_open = False
         self._touch_start_x = None
+        self._drawer_open_at_touch_down = False  # state at touch_down, not touch_up
         self.add_widget(content)
         self.add_widget(drawer)
         Clock.schedule_once(lambda dt: setattr(drawer, "pos", (-drawer.width, 0)), 0.1)
@@ -963,19 +971,39 @@ class NavigationDrawer(FloatLayout):
             Animation(pos=(0, 0), duration=0.25).start(self.drawer)
 
     def on_touch_down(self, touch):
+        # Snapshot drawer state at the START of the touch, not the end.
+        # toggle_drawer() may be called between touch_down and touch_up (by a
+        # button handler), so checking drawer_open in on_touch_up gives the
+        # wrong state — the drawer appears open when it was just opened by this
+        # very touch, causing an immediate re-close on desktop.
         self._touch_start_x = touch.x
+        self._drawer_open_at_touch_down = self.drawer_open
         return super().on_touch_down(touch)
 
     def on_touch_up(self, touch):
         if self._touch_start_x is not None:
             dx = touch.x - self._touch_start_x
-            if dx > dp(50) and self._touch_start_x < dp(30) and not self.drawer_open:
-                self.toggle_drawer()
-            elif dx < -dp(50) and self.drawer_open:
-                self.toggle_drawer()
-            elif self.drawer_open and touch.x > self.drawer.width:
-                self.toggle_drawer()
+            was_open = self._drawer_open_at_touch_down
+
+            # Swipe right from left edge → open
+            if dx > dp(50) and self._touch_start_x < dp(30) and not was_open:
+                if not self.drawer_open:
+                    self.toggle_drawer()
+
+            # Swipe left → close
+            elif dx < -dp(50) and was_open:
+                if self.drawer_open:
+                    self.toggle_drawer()
+
+            # Tap outside drawer → close only if drawer was ALREADY open when
+            # the finger went down. If it was just opened by a button in this
+            # same touch cycle, was_open is False and we do nothing.
+            elif was_open and abs(dx) < dp(10) and touch.x > self.drawer.width:
+                if self.drawer_open:
+                    self.toggle_drawer()
+
         self._touch_start_x = None
+        self._drawer_open_at_touch_down = False
         return super().on_touch_up(touch)
 
     def on_size(self, *_):
