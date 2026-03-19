@@ -67,12 +67,13 @@ def _init_font():
 _init_font()
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-NODERAGE_HOST = "rns.michmesh.net"
-NODERAGE_PORT = 7822
-DEFAULT_NODE  = "fad4f4c59b38f341d357383593c41bd8"
+NODERAGE_HOST = "rns.chicagonomad.net"
+NODERAGE_PORT = 4242
+DEFAULT_NODE  = "c95cce570afd2fa1545fa86c07256fdc"
 DEFAULT_PAGE  = "/page/index.mu"
-PAGE_TIMEOUT  = 30
-LINK_TIMEOUT  = 15
+PAGE_TIMEOUT  = 60
+LINK_TIMEOUT  = 45
+
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 MICRON_COLORS = {
@@ -397,18 +398,56 @@ def parse_micron(text):
 class AnnounceHandler:
     """Receives RNS announce packets and extracts node info."""
 
-    aspect_filter = "nomadnetwork.node"  # Only NomadNet page nodes
+    aspect_filter = None  # Must be None — RNS aspect_filter string matching is unreliable
 
     def __init__(self, on_announce_callback=None):
         self.on_announce_callback = on_announce_callback
         self._announced_nodes = {}
         # destination_hash (bytes) -> RNS.Identity; keyed by dest hash not identity hash
         self._identities = {}
+        self._node_names = {}
 
     def received_announce(self, destination_hash, announced_identity, app_data,
                           announce_packet_hash=None, is_path_response=False):
         if not announced_identity:
             return
+
+        # Identify if this is a nomadnetwork.node announce.
+        is_nomadnet = False
+        matched_names = ("nomadnetwork", "node")
+        try:
+            # We check if the destination hash matches the nomadnetwork.node aspect
+            # for the identity that announced.
+            h_str  = RNS.Destination.hash_from_name_and_identity("nomadnetwork.node", announced_identity)
+            h_str2 = RNS.Destination.hash_from_name_and_identity("nomadnet.node", announced_identity)
+            
+            if destination_hash == h_str:
+                is_nomadnet = True
+                matched_names = ("nomadnetwork", "node")
+            elif destination_hash == h_str2:
+                is_nomadnet = True
+                matched_names = ("nomadnet", "node")
+        except Exception as e:
+            RNS.log(f"RetiBrowser: Error identifying NomadNet node: {e}", RNS.LOG_DEBUG)
+
+        # Fallback: some older nodes might announce differently, or RNS versions might vary.
+        # If app_data looks like NomadNet data, we can also consider it.
+        if not is_nomadnet and app_data:
+            try:
+                unpacked = umsgpack.unpackb(app_data)
+                if isinstance(unpacked, list) and len(unpacked) >= 1:
+                    # NomadNet nodes usually have a name as the first element of a list
+                    if isinstance(unpacked[0], (str, bytes)) and len(unpacked[0]) > 0:
+                        # This is a bit broad, but helps if the hash calculation above fails
+                        # for some reason (e.g. name mismatch "nomadnet" vs "nomadnetwork")
+                        is_nomadnet = True
+                        matched_names = ("nomadnetwork", "node")
+            except Exception:
+                pass
+
+        if not is_nomadnet:
+            return
+
         try:
             node_hash = RNS.hexrep(destination_hash, delimit=False)
 
@@ -418,22 +457,25 @@ class AnnounceHandler:
             #   bytes  : msgpack-encoded dict or list
             #   scalar : int/None — no useful name info
             info = {}
+            unpacked = app_data
             if isinstance(app_data, bytes):
                 try:
-                    info = umsgpack.unpackb(app_data)
+                    unpacked = umsgpack.unpackb(app_data)
                 except Exception:
-                    info = {}
-            elif isinstance(app_data, dict):
-                info = app_data
-            elif isinstance(app_data, list):
+                    unpacked = {}
+
+            if isinstance(unpacked, dict):
+                info = unpacked
+            elif isinstance(unpacked, list):
                 # [b'NodeName', optional_dict_or_None]
-                name_raw = app_data[0] if app_data else None
-                extra    = app_data[1] if len(app_data) > 1 else None
+                name_raw = unpacked[0] if unpacked else None
+                extra    = unpacked[1] if len(unpacked) > 1 else None
                 if isinstance(name_raw, bytes):
                     info["name"] = name_raw.decode("utf-8", errors="replace")
+                elif isinstance(name_raw, str):
+                    info["name"] = name_raw
                 if isinstance(extra, dict):
                     info.update(extra)
-            # scalar (int, None, etc.) → info stays {}
 
             # If info itself is a list (nested unpack), handle similarly
             if isinstance(info, list):
@@ -442,10 +484,10 @@ class AnnounceHandler:
                 info = {}
                 if isinstance(name_raw, bytes):
                     info["name"] = name_raw.decode("utf-8", errors="replace")
+                elif isinstance(name_raw, str):
+                    info["name"] = name_raw
                 if isinstance(extra, dict):
                     info.update(extra)
-            elif not isinstance(info, dict):
-                info = {}
 
             name = (info.get("name") or info.get("nodename") or
                     info.get("node_name") or info.get("title") or
@@ -462,6 +504,7 @@ class AnnounceHandler:
             self._announced_nodes[node_hash] = node_record
             if announced_identity:
                 self._identities[destination_hash] = announced_identity
+                self._node_names[destination_hash] = matched_names
             log(f"Announce: {name} ({node_hash[:8]}…)")
 
             if self.on_announce_callback:
@@ -476,6 +519,10 @@ class AnnounceHandler:
     def get_identity(self, dest_hash_bytes):
         """Return the Identity for a destination hash bytes object."""
         return self._identities.get(dest_hash_bytes)
+
+    def get_names(self, dest_hash_bytes):
+        """Return the app/aspect names for a destination hash."""
+        return self._node_names.get(dest_hash_bytes)
 
 
 class ReticulumClient:
@@ -592,25 +639,25 @@ class ReticulumClient:
 
             def _step_identity(dh):
                 # Primary: look up the identity we stored when the announce arrived.
-                # Identity.recall() takes an IDENTITY hash, not a destination hash.
-                # Passing dest_hash to recall() looks up the wrong key and fails.
                 identity = self.announce_handler.get_identity(dh)
-                if identity is None:
-                    # Fallback: try recall in case RNS cached it locally
-                    identity = RNS.Identity.recall(dh)
+                names    = self.announce_handler.get_names(dh) or ("nomadnetwork", "node")
+                
                 if not identity:
                     fail(f"[FAIL] Identity not found for {RNS.hexrep(dh,delimit=False)[:8]}…\n"
                          f"  Node may not have announced recently.")
                     return
-                status(f"Identity: {RNS.hexrep(identity.hash,delimit=False)[:8]}…")
-                _step_open_link(identity, dh)
+                status(f"Identity: {RNS.hexrep(identity.hash,delimit=False)[:8]}… Names: {'.'.join(names)}")
+                _step_open_link(identity, dh, names)
 
-            def _step_open_link(identity, dh):
+            def _step_open_link(identity, dh, names):
                 destination = RNS.Destination(
                     identity, RNS.Destination.OUT, RNS.Destination.SINGLE,
-                    "nomadnetwork", "node",
+                    *names
                 )
-                status(f"Opening link to {RNS.hexrep(dh,delimit=False)[:8]}…")
+                if destination.hash != dh:
+                    status(f"WARNING: Hash mismatch! Expected {RNS.hexrep(dh,0)[:8]} Calculated {RNS.hexrep(destination.hash,0)[:8]}")
+                
+                status(f"Opening link to {RNS.hexrep(destination.hash,delimit=False)[:8]}…")
 
                 timeout_ev = [None]
 
@@ -753,13 +800,13 @@ class ReticulumClient:
                         RNS.Transport.deregister_announce_handler(watcher[0])
                     except Exception:
                         pass
-                fail(f"[FAIL] Path not found after {LINK_TIMEOUT}s\n"
+                fail(f"[FAIL] Path or Identity not found after {LINK_TIMEOUT}s\n"
                      f"  Node: {node_hex}\n"
                      f"  Hub: {NODERAGE_HOST}:{NODERAGE_PORT}\n"
-                     f"  Is the server connected to the hub?")
+                     f"  Wait for a fresh announce from this node.")
 
             class _PathWatcher:
-                aspect_filter = "nomadnetwork.node"
+                aspect_filter = None  # Filter manually in received_announce
                 def received_announce(self_w, destination_hash, announced_identity,
                                       app_data, **kw):
                     if destination_hash == dest_hash:
