@@ -67,12 +67,12 @@ def _init_font():
 _init_font()
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-NODERAGE_HOST = "rns01.ohiomesh.net"
-NODERAGE_PORT = 4242
+NODERAGE_HOST = "rns.michmesh.net"
+NODERAGE_PORT = 7822
 DEFAULT_NODE  = "fad4f4c59b38f341d357383593c41bd8"
 DEFAULT_PAGE  = "/page/index.mu"
 PAGE_TIMEOUT  = 30
-LINK_TIMEOUT  = 30
+LINK_TIMEOUT  = 15
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 MICRON_COLORS = {
@@ -664,32 +664,37 @@ class ReticulumClient:
                 )
 
             # ── Start the chain ───────────────────────────────────────────────
-            # Always expire any cached path before requesting — cached entries
-            # from previous sessions may be stale (hub topology changes between
-            # runs). A stale path causes "link was never established / trying to
-            # rediscover" because RNS trusts the cache and sends the link request
-            # to a next-hop that no longer exists on the network.
+            # Fast path: identity already in cache from a recent announce.
+            # Skip path discovery entirely and open the link immediately.
+            # This is the normal case for nodes visible in the drawer —
+            # their identity arrived with the announce packet.
+            if RNS.Identity.recall(dest_hash) is not None:
+                status("Identity already known — opening link directly")
+                _step_identity(dest_hash)
+                return
+
+            # Slow path: identity not cached. We need to either:
+            #   a) get a path-response (updates routing table, no identity)
+            #      then wait for an announce that carries the identity, OR
+            #   b) get an announce directly (has both path + identity)
+            #
+            # expire_announced_path removes a stale cached path entry so RNS
+            # doesn't try to use a dead next-hop from a previous session.
             if hasattr(RNS.Transport, "expire_announced_path"):
                 try:
                     RNS.Transport.expire_announced_path(dest_hash)
-                    status("Expired cached path — requesting fresh route")
                 except Exception:
                     pass
-            elif RNS.Transport.has_path(dest_hash):
-                # expire_announced_path not available in this RNS version —
-                # use has_path as a read-only check but still re-request to
-                # validate the path is still live before opening a link.
-                status("Path in cache (will verify via fresh request)")
 
             status("Requesting path…")
             RNS.Transport.request_path(dest_hash)
 
-            # Wait using BOTH mechanisms:
-            # 1. Clock.schedule_interval polls has_path() every 0.25s — catches
-            #    path-response packets which update the routing table but do NOT
-            #    trigger announce handlers.
-            # 2. _PathWatcher handles announce packets (also carry the identity).
-            # Whichever fires first cancels the other and continues the chain.
+            # Wait using BOTH mechanisms simultaneously:
+            # 1. Clock.schedule_interval polls has_path() + Identity.recall()
+            #    every 0.25s — catches path-response packets (no announce handler
+            #    fires for these) AND the subsequent announce that brings identity.
+            # 2. _PathWatcher fires immediately if an announce arrives first.
+            # Whichever fires first cancels the other.
 
             _path_resolved = [False]
             path_poll      = [None]
@@ -715,10 +720,19 @@ class ReticulumClient:
                 _step_identity(dest_hash)
 
             def _poll_path(dt):
-                if RNS.Transport.has_path(dest_hash):
-                    status("Path resolved via path-response")
+                # Check for identity (arrives with announce after path resolves)
+                if RNS.Identity.recall(dest_hash) is not None:
+                    status("Identity received — proceeding")
                     _resolve_path()
-                    return False  # stop interval
+                    return False
+                # Also accept path-only response if identity somehow already known
+                if RNS.Transport.has_path(dest_hash):
+                    identity = RNS.Identity.recall(dest_hash)
+                    if identity:
+                        status("Path + identity resolved")
+                        _resolve_path()
+                        return False
+                    # Path known but no identity yet — keep waiting for announce
 
             def _on_path_timeout(dt):
                 path_timeout[0] = None
@@ -1149,26 +1163,40 @@ class RetiBrowserApp(App):
         Clock.schedule_interval(self._wait_for_interface, 0.25)
 
     def _wait_for_interface(self, dt):
-        """Called every 0.25s on the Kivy main thread until interface is online."""
+        """Called every 0.25s on the Kivy main thread until TCP connection is live.
+
+        RNS sets interface.online = True immediately during initialisation as a
+        "ready to attempt" flag — it does NOT mean the TCP handshake succeeded.
+        The reliable signal that the hub accepted our connection is rxb > 0:
+        bytes are only received after the TCP handshake completes and the hub
+        starts sending data (path table updates, announces, etc.).
+        """
         elapsed = time.time() - self._iface_wait_start
         interfaces = getattr(RNS.Transport, "interfaces", [])
-        online = [i for i in interfaces if getattr(i, "online", False)]
 
-        if online:
-            names = ", ".join(getattr(i,"name","?") for i in online)
-            log(f"Interface online after {elapsed:.1f}s: {names}")
+        # An interface is genuinely connected when it has received bytes.
+        # rxb increments only after a successful TCP handshake with the hub.
+        connected = [
+            i for i in interfaces
+            if getattr(i, "online", False) and getattr(i, "rxb", 0) > 0
+        ]
+
+        if connected:
+            names = ", ".join(getattr(i,"name","?") for i in connected)
+            log(f"Hub connected after {elapsed:.1f}s: {names}")
             self._set_status("Connected — loading page…")
             Clock.unschedule(self._wait_for_interface)
             self._do_initial_load()
             return False
 
         if elapsed > 30:
-            log("Interface never came online after 30s")
+            log("Hub never connected after 30s")
             Clock.unschedule(self._wait_for_interface)
             self._set_status("Connection failed — check network")
             self._pageview.show_status(
                 f"[color=#ff5555]Could not connect to {NODERAGE_HOST}:{NODERAGE_PORT} "
-                f"after 30s[/color]\n[color=#aaaaaa]Check your internet connection.[/color]",
+                f"after 30s[/color]\n\n[color=#aaaaaa]The hub may be down or unreachable.\n"
+                f"Check your internet connection.[/color]",
                 color=(1,0.33,0.33,1))
             return False
 
