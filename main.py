@@ -595,7 +595,7 @@ class ReticulumClient:
             def _step_open_link(identity, dh):
                 destination = RNS.Destination(
                     identity, RNS.Destination.OUT, RNS.Destination.SINGLE,
-                    "nomadnetwork", "page",
+                    "nomadnetwork", "node",
                 )
                 status(f"Opening link to {RNS.hexrep(dh,delimit=False)[:8]}…")
 
