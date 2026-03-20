@@ -44,6 +44,7 @@ from kivy.graphics import Color, Rectangle
 from kivy.core.window import Window
 from kivy.metrics import dp, sp
 from kivy.animation import Animation
+from kivy.utils import platform
 from kivy.uix.dropdown import DropDown
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
@@ -75,9 +76,12 @@ _init_font()
 
 class ConfigManager:
     def __init__(self, config_dir):
+        self.config_dir = config_dir
         self.config_file = os.path.join(config_dir, "retibrowser_config.json")
+        self.cache_file = os.path.join(config_dir, "node_cache.json")
         self.config = {
             "node_name": "RetiBrowser Client",
+            "default_node": "c95cce570afd2fa1545fa86c07256fdc",
             "hubs": [
                 {"host": "rns.chicagonomad.net", "port": 4242, "enabled": True}
             ]
@@ -102,6 +106,22 @@ class ConfigManager:
                 json.dump(self.config, f, indent=4)
         except Exception as e:
             log(f"Error saving config: {e}")
+
+    def load_node_cache(self):
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                log(f"Error loading node cache: {e}")
+        return {}
+
+    def save_node_cache(self, cache):
+        try:
+            with open(self.cache_file, "w") as f:
+                json.dump(cache, f, indent=4)
+        except Exception as e:
+            log(f"Error saving node cache: {e}")
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 DEFAULT_NODE  = "c95cce570afd2fa1545fa86c07256fdc"
@@ -466,12 +486,48 @@ class AnnounceHandler:
 
     aspect_filter = None  # Must be None — RNS aspect_filter string matching is unreliable
 
-    def __init__(self, on_announce_callback=None):
+    def __init__(self, config_manager, on_announce_callback=None):
+        self.config_manager = config_manager
         self.on_announce_callback = on_announce_callback
         self._announced_nodes = {}
         # destination_hash (bytes) -> RNS.Identity; keyed by dest hash not identity hash
         self._identities = {}
         self._node_names = {}
+        self._load_cache()
+
+    def _load_cache(self):
+        cache = self.config_manager.load_node_cache()
+        for node_hash, data in cache.items():
+            self._announced_nodes[node_hash] = data["info"]
+            dest_hash = bytes.fromhex(node_hash)
+            self._node_names[dest_hash] = tuple(data["names"])
+            
+            # Reconstruct identity from public key
+            if "pub_key" in data:
+                try:
+                    pub_key = bytes.fromhex(data["pub_key"])
+                    identity = RNS.Identity.from_bytes(pub_key)
+                    self._identities[dest_hash] = identity
+                except Exception as e:
+                    log(f"Error restoring identity for {node_hash}: {e}")
+
+    def _save_cache(self):
+        cache = {}
+        for node_hash, info in self._announced_nodes.items():
+            dest_hash = bytes.fromhex(node_hash)
+            names = self._node_names.get(dest_hash, ("nomadnetwork", "node"))
+            identity = self._identities.get(dest_hash)
+            
+            entry = {
+                "info": info,
+                "names": list(names),
+            }
+            if identity:
+                entry["pub_key"] = RNS.hexrep(identity.get_public_key(), delimit=False)
+            
+            cache[node_hash] = entry
+            
+        self.config_manager.save_node_cache(cache)
 
     def received_announce(self, destination_hash, announced_identity, app_data,
                           announce_packet_hash=None, is_path_response=False):
@@ -571,6 +627,10 @@ class AnnounceHandler:
             if announced_identity:
                 self._identities[destination_hash] = announced_identity
                 self._node_names[destination_hash] = matched_names
+            
+            # Persist to cache
+            self._save_cache()
+            
             log(f"Announce: {name} ({node_hash[:8]}…)")
 
             if self.on_announce_callback:
@@ -600,7 +660,7 @@ class ReticulumClient:
         self._active_link     = None
         self._lock            = threading.Lock()
         self.config_manager   = config_manager
-        self.announce_handler = AnnounceHandler(on_announce_callback)
+        self.announce_handler = AnnounceHandler(config_manager, on_announce_callback)
 
     def start(self):
         # Resolve a writable config directory
@@ -997,7 +1057,7 @@ class NodeDrawer(BoxLayout):
         super().__init__(orientation="vertical", size_hint=(None,None),
                          width=dp(280), height=Window.height, **kwargs)
         self.on_node_select = on_node_select
-        self._displayed_hashes = set()
+        self._node_widgets = {} # hash -> card widget
 
         with self.canvas.before:
             Color(*BG_COLOR)
@@ -1039,9 +1099,19 @@ class NodeDrawer(BoxLayout):
 
     def add_node(self, node_info):
         nh = node_info.get("hash", "")
-        if nh in self._displayed_hashes:
+        
+        # If already exists, move to top
+        if nh in self._node_widgets:
+            card = self._node_widgets[nh]
+            self._node_list.remove_widget(card)
+            # In Kivy BoxLayout, index 0 is the LAST added widget by default
+            # (which means bottom). To put on top, we add it as the last index
+            # or just call add_widget() without index to put it at the "end".
+            # Wait, Kivy default is index=0 is the last in children list, 
+            # and BoxLayout renders children[0] at the bottom.
+            # So to put at TOP, we want it to be children[-1].
+            self._node_list.add_widget(card)
             return
-        self._displayed_hashes.add(nh)
 
         card = BoxLayout(orientation="horizontal", size_hint_y=None,
                          height=dp(64), padding=dp(8), spacing=dp(8))
@@ -1067,6 +1137,8 @@ class NodeDrawer(BoxLayout):
         nav.bind(on_press=lambda i, h=nh: self._navigate(h))
         card.add_widget(info)
         card.add_widget(nav)
+        
+        self._node_widgets[nh] = card
         self._node_list.add_widget(card)
 
     def _navigate(self, node_hash):
@@ -1076,7 +1148,7 @@ class NodeDrawer(BoxLayout):
 
     def clear_nodes(self):
         self._node_list.clear_widgets()
-        self._displayed_hashes.clear()
+        self._node_widgets.clear()
 
 
 class NavigationDrawer(FloatLayout):
@@ -1114,20 +1186,21 @@ class NavigationDrawer(FloatLayout):
             dx = touch.x - self._touch_start_x
             was_open = self._drawer_open_at_touch_down
 
-            # Swipe right from left edge → open
-            if dx > dp(50) and self._touch_start_x < dp(30) and not was_open:
-                if not self.drawer_open:
-                    self.toggle_drawer()
+            # Swipe gestures — only on Android
+            if platform == "android":
+                # Swipe right from left edge → open
+                if dx > dp(50) and self._touch_start_x < dp(30) and not was_open:
+                    if not self.drawer_open:
+                        self.toggle_drawer()
 
-            # Swipe left → close
-            elif dx < -dp(50) and was_open:
-                if self.drawer_open:
-                    self.toggle_drawer()
+                # Swipe left → close
+                elif dx < -dp(50) and was_open:
+                    if self.drawer_open:
+                        self.toggle_drawer()
 
-            # Tap outside drawer → close only if drawer was ALREADY open when
-            # the finger went down. If it was just opened by a button in this
-            # same touch cycle, was_open is False and we do nothing.
-            elif was_open and abs(dx) < dp(10) and touch.x > self.drawer.width:
+            # Tap outside drawer → close (on all platforms)
+            # only if drawer was ALREADY open when the finger went down.
+            if was_open and abs(dx) < dp(10) and touch.x > self.drawer.width:
                 if self.drawer_open:
                     self.toggle_drawer()
 
@@ -1217,7 +1290,8 @@ class PageView(ScrollView):
                     if seg.get("bg") and seg["bg"] != BG_COLOR:
                         non_default_bgs.append(seg["bg"])
 
-                fs = {0:sp(14), 1:sp(20), 2:sp(17), 3:sp(15)}[heading]
+                fs_map = {0:sp(14), 1:sp(20), 2:sp(17), 3:sp(15)}
+                fs = fs_map.get(heading, sp(14))
                 lbl = Label(text="".join(markup_parts), markup=True,
                             font_size=fs, halign=align, valign="top",
                             size_hint_y=None, color=FG_COLOR)
@@ -1277,6 +1351,14 @@ class ConfigPopup(ModalView):
                                     background_color=(0.12,0.15,0.20,1), foreground_color=FG_COLOR)
         name_layout.add_widget(self.name_input)
         layout.add_widget(name_layout)
+        
+        # Default Node
+        node_layout = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(40), spacing=dp(10))
+        node_layout.add_widget(Label(text="Home Node:", size_hint_x=0.3))
+        self.node_input = TextInput(text=self.config_manager.config.get("default_node", ""), multiline=False,
+                                    background_color=(0.12,0.15,0.20,1), foreground_color=FG_COLOR)
+        node_layout.add_widget(self.node_input)
+        layout.add_widget(node_layout)
         
         layout.add_widget(Label(text="Community Hubs", font_size=sp(16), bold=True, size_hint_y=None, height=dp(30)))
         
@@ -1352,6 +1434,7 @@ class ConfigPopup(ModalView):
 
     def save_config(self, *args):
         self.config_manager.config["node_name"] = self.name_input.text
+        self.config_manager.config["default_node"] = self.node_input.text
         self.config_manager.save()
         self.on_save()
         self.dismiss()
@@ -1367,8 +1450,7 @@ class RetiBrowserApp(App):
         try:
             Window.clearcolor = BG_COLOR
             self._history, self._hist_pos = [], -1
-            self._current_node = DEFAULT_NODE
-
+            
             # Resolve a writable config directory for ConfigManager
             try:
                 config_root = self.user_data_dir if (self and self.user_data_dir) else os.path.expanduser("~")
@@ -1378,8 +1460,16 @@ class RetiBrowserApp(App):
             os.makedirs(config_path, exist_ok=True)
             
             self._config_manager = ConfigManager(config_path)
+            self._current_node = self._config_manager.config.get("default_node", DEFAULT_NODE)
             self._rns = ReticulumClient(self._config_manager, on_announce_callback=self._on_announce_received)
             self._node_drawer = NodeDrawer(on_node_select=self._navigate_to_node)
+            
+            # Populate from cache — sort by timestamp so oldest are added first, 
+            # and newest end up on top (index=0).
+            nodes = self._rns.get_announced_nodes()
+            nodes.sort(key=lambda x: x.get("timestamp", 0))
+            for node_info in nodes:
+                self._node_drawer.add_node(node_info)
 
             main = BoxLayout(orientation="vertical")
             self._addrbar = AddressBar(on_navigate=self._navigate_url)
@@ -1389,14 +1479,16 @@ class RetiBrowserApp(App):
 
             # Menu Button with Dropdown
             self._menu_btn = IconButton(text="≡", width=dp(44))
-            self._dropdown = DropDown()
+            self._dropdown = DropDown(auto_width=False, width=dp(180))
             
             btn_discovered = Button(text="Discovered Nodes", size_hint_y=None, height=dp(44), 
+                                     width=dp(180), size_hint_x=None,
                                      background_color=BTN_COLOR, background_normal="")
             btn_discovered.bind(on_release=lambda btn: self._dropdown.select("discovered"))
             self._dropdown.add_widget(btn_discovered)
             
             btn_config = Button(text="Config", size_hint_y=None, height=dp(44),
+                                 width=dp(180), size_hint_x=None,
                                  background_color=BTN_COLOR, background_normal="")
             btn_config.bind(on_release=lambda btn: self._dropdown.select("config"))
             self._dropdown.add_widget(btn_config)
@@ -1496,7 +1588,7 @@ class RetiBrowserApp(App):
 
     def _do_initial_load(self, dt=None):
         try:
-            self._load_page(DEFAULT_NODE, DEFAULT_PAGE, push_history=True)
+            self._load_page(self._current_node, DEFAULT_PAGE, push_history=True)
         except Exception as e:
             log(f"Initial load error: {e}")
             self._set_status(f"Load error: {e}")
