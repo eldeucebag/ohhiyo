@@ -45,6 +45,7 @@ from kivy.core.window import Window
 from kivy.metrics import dp, sp
 from kivy.animation import Animation
 from kivy.utils import platform
+from kivy.vector import Vector
 from kivy.uix.dropdown import DropDown
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
@@ -122,6 +123,15 @@ class ConfigManager:
                 json.dump(cache, f, indent=4)
         except Exception as e:
             log(f"Error saving node cache: {e}")
+
+    def purge_node_cache(self):
+        try:
+            if os.path.exists(self.cache_file):
+                os.remove(self.cache_file)
+            return True
+        except Exception as e:
+            log(f"Error purging node cache: {e}")
+            return False
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 DEFAULT_NODE  = "c95cce570afd2fa1545fa86c07256fdc"
@@ -616,12 +626,24 @@ class AnnounceHandler:
                     info.get("display_name") or info.get("hostname") or
                     f"Node {node_hash[:8]}")
 
+            caps = info.get("capabilities", [])
+            # LXMF detection
+            is_lxmf = "lxmf" in caps
+            if not is_lxmf and announced_identity:
+                try:
+                    lx_h = RNS.Destination.hash_from_name_and_identity("lxmf.delivery", announced_identity)
+                    # If we could check if lx_h is in RNS routing table or something, but 
+                    # usually if it's a nomadnet node, it'll have lxmf in caps if it supports it.
+                    pass
+                except: pass
+
             node_record = {
                 "hash":         node_hash,
                 "name":         name,
                 "timestamp":    info.get("timestamp", time.time()),
-                "capabilities": info.get("capabilities", []),
+                "capabilities": caps,
                 "type":         info.get("type", "unknown"),
+                "is_lxmf":      is_lxmf,
             }
             self._announced_nodes[node_hash] = node_record
             if announced_identity:
@@ -1122,13 +1144,30 @@ class NodeDrawer(BoxLayout):
                   size=lambda i,v: setattr(i._bg,"size",v))
 
         info = BoxLayout(orientation="vertical")
+        name_row = BoxLayout(orientation="horizontal", spacing=dp(4))
         name_lbl = Label(text=node_info.get("name","?"), halign="left", valign="middle",
-                         font_size=sp(14), bold=True, color=FG_COLOR, font_name=FONT_PATH)
-        name_lbl.bind(size=lambda i,v: setattr(i,"text_size",i.size))
+                         font_size=sp(14), bold=True, color=FG_COLOR, font_name=FONT_PATH,
+                         size_hint_x=None)
+        name_lbl.bind(texture_size=lambda i,v: setattr(i,"width",v[0]))
+        name_row.add_widget(name_lbl)
+        
+        # Indicators
+        caps = node_info.get("capabilities", [])
+        if "pages" in caps or "micron" in caps:
+            p_ind = Label(text="\uf0ac", font_size=sp(12), color=(0.2, 0.8, 1, 1),
+                          size_hint=(None, None), size=(dp(20), dp(20)), font_name=FONT_PATH)
+            name_row.add_widget(p_ind)
+            
+        if node_info.get("is_lxmf") or "lxmf" in caps:
+            l_ind = Label(text="\uf0e0", font_size=sp(12), color=(0.2, 1, 0.2, 1),
+                          size_hint=(None, None), size=(dp(20), dp(20)), font_name=FONT_PATH)
+            name_row.add_widget(l_ind)
+            
+        info.add_widget(name_row)
+        
         hash_lbl = Label(text=f"{nh[:16]}…", halign="left", valign="top",
                          font_size=sp(10), color=(0.6,0.6,0.6,1), font_name=FONT_PATH)
         hash_lbl.bind(size=lambda i,v: setattr(i,"text_size",i.size))
-        info.add_widget(name_lbl)
         info.add_widget(hash_lbl)
 
         nav = Button(text="Go →", size_hint_x=None, width=dp(60),
@@ -1227,32 +1266,68 @@ class PageView(ScrollView):
             Color(*BG_COLOR)
             self._bg = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._upd, size=self._upd)
+        
+        self.zoom_factor = 1.0
+        self._touches = []
+        self._last_dist = 0
+        self.current_elements = []
 
     def _upd(self, *_):
         self._bg.pos = self.pos
         self._bg.size = self.size
 
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            self._touches.append(touch)
+            if len(self._touches) == 2:
+                self._last_dist = Vector(self._touches[0].pos).distance(self._touches[1].pos)
+                return True # Consume for pinch
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if len(self._touches) == 2 and touch in self._touches:
+            dist = Vector(self._touches[0].pos).distance(self._touches[1].pos)
+            if self._last_dist > 0:
+                scale = dist / self._last_dist
+                new_zoom = self.zoom_factor * scale
+                # Clamp zoom between 0.5x and 3.0x
+                if 0.5 <= new_zoom <= 3.0:
+                    self.zoom_factor = new_zoom
+                    self.show_elements(self.current_elements, reset_scroll=False)
+            self._last_dist = dist
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if touch in self._touches:
+            self._touches.remove(touch)
+        return super().on_touch_up(touch)
+
     @mainthread
-    def show_elements(self, elements):
+    def show_elements(self, elements, reset_scroll=True):
+        self.current_elements = elements
         self.container.clear_widgets()
-        self.scroll_y = 1
+        if reset_scroll:
+            self.scroll_y = 1
+
+        zf = self.zoom_factor
 
         for el in elements:
             t = el.get("type")
 
             if t == "blank":
-                self.container.add_widget(Widget(size_hint_y=None, height=dp(6)))
+                self.container.add_widget(Widget(size_hint_y=None, height=dp(6)*zf))
 
             elif t == "divider":
                 div_char = el.get("char")
                 if div_char:
-                    lbl = Label(text=div_char * 40, font_size=sp(12), halign="left",
-                                valign="top", size_hint_y=None, height=dp(18),
+                    lbl = Label(text=div_char * 40, font_size=sp(12)*zf, halign="left",
+                                valign="top", size_hint_y=None, height=dp(18)*zf,
                                 color=(0.4, 0.5, 0.6, 1))
                     lbl.bind(width=lambda i,w: setattr(i,"text_size",(w,None)))
                     self.container.add_widget(lbl)
                 else:
-                    w = Widget(size_hint_y=None, height=dp(1))
+                    w = Widget(size_hint_y=None, height=dp(1)*zf)
                     with w.canvas.before:
                         Color(0.3, 0.4, 0.5, 1)
                         r = Rectangle(pos=w.pos, size=w.size)
@@ -1263,6 +1338,8 @@ class PageView(ScrollView):
             elif t == "link":
                 btn = LinkButton(label=el["label"], path=el["path"],
                                  node=el.get("node",""), on_tap=self.on_link_tap)
+                btn.font_size = sp(14) * zf
+                btn.height = dp(34) * zf
                 self.container.add_widget(btn)
 
             elif t == "text":
@@ -1291,7 +1368,7 @@ class PageView(ScrollView):
                         non_default_bgs.append(seg["bg"])
 
                 fs_map = {0:sp(14), 1:sp(20), 2:sp(17), 3:sp(15)}
-                fs = fs_map.get(heading, sp(14))
+                fs = fs_map.get(heading, sp(14)) * zf
                 lbl = Label(text="".join(markup_parts), markup=True,
                             font_size=fs, halign=align, valign="top",
                             size_hint_y=None, color=FG_COLOR)
@@ -1312,7 +1389,7 @@ class PageView(ScrollView):
 
             elif t == "literal":
                 safe = el.get("content","").replace("[","[[").replace("]","]]")
-                lbl = Label(text=safe, markup=True, font_size=sp(12),
+                lbl = Label(text=safe, markup=True, font_size=sp(12)*zf,
                             halign="left", valign="top", size_hint_y=None,
                             color=(0.7,0.7,0.7,1), font_name=FONT_PATH)
                 lbl.bind(
@@ -1378,6 +1455,9 @@ class ConfigPopup(ModalView):
         add_btn = Button(text="Add Hub", background_color=BTN_COLOR, background_normal="")
         add_btn.bind(on_release=self.add_hub_dialog)
         
+        purge_btn = Button(text="Purge Cache", background_color=(0.6, 0.2, 0.2, 1), background_normal="")
+        purge_btn.bind(on_release=self.purge_cache)
+        
         save_btn = Button(text="Save & Restart", background_color=(0.2, 0.6, 0.2, 1), background_normal="")
         save_btn.bind(on_release=self.save_config)
         
@@ -1385,6 +1465,7 @@ class ConfigPopup(ModalView):
         close_btn.bind(on_release=self.dismiss)
         
         btn_layout.add_widget(add_btn)
+        btn_layout.add_widget(purge_btn)
         btn_layout.add_widget(save_btn)
         btn_layout.add_widget(close_btn)
         layout.add_widget(btn_layout)
@@ -1431,6 +1512,13 @@ class ConfigPopup(ModalView):
         if len(self.config_manager.config["hubs"]) > 1:
             self.config_manager.config["hubs"].pop(index)
             self.refresh_hubs()
+
+    def purge_cache(self, *args):
+        if self.config_manager.purge_node_cache():
+            app = App.get_running_app()
+            if hasattr(app, "_node_drawer"):
+                app._node_drawer.clear_nodes()
+            self.dismiss()
 
     def save_config(self, *args):
         self.config_manager.config["node_name"] = self.name_input.text
