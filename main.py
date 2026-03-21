@@ -63,7 +63,7 @@ def _init_font():
         os.path.dirname(os.path.abspath(__file__)),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
     ]:
-        fp = os.path.join(base, "JetBrainsMonoNerdFont.ttf")
+        fp = os.path.join(base, "ShureTechMonoNerdFontMono-Regular.ttf")
         if os.path.exists(fp):
             FONT_PATH = fp
             log(f"Using bundled font: {FONT_PATH}")
@@ -1727,10 +1727,37 @@ class RetiBrowserApp(App):
     def _load_page(self, node_hex, page_path, push_history=True):
         node_hex  = node_hex.strip().lower()
         page_path = page_path.strip()
-        if not page_path.startswith("/"):
-            page_path = "/page/" + page_path
-        self._current_node = node_hex
 
+        # Handle relative paths (no leading slash)
+        if not page_path.startswith("/"):
+            # Resolve relative to current directory if same node
+            current_path = ""
+            if self._history and self._hist_pos >= 0:
+                cur_node, cur_path = self._history[self._hist_pos]
+                if cur_node == node_hex:
+                    current_path = cur_path
+            
+            if current_path:
+                dir_path = "/".join(current_path.split("/")[:-1])
+                if not dir_path.endswith("/"):
+                    dir_path += "/"
+                page_path = dir_path + page_path
+            else:
+                # Default to /page/ if no history or different node
+                page_path = "/page/" + page_path
+
+        # Normalize path (handle .. and . segments)
+        parts = []
+        for p in page_path.split("/"):
+            if p == "..":
+                if parts: parts.pop()
+            elif p == "." or not p:
+                continue
+            else:
+                parts.append(p)
+        page_path = "/" + "/".join(parts)
+        
+        self._current_node = node_hex
         Clock.schedule_once(lambda *_: self._addrbar.set_url(f"{node_hex}:{page_path}"), 0)
 
         if push_history:
