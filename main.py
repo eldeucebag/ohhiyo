@@ -16,6 +16,7 @@ import time
 import threading
 import traceback
 import json
+import re
 
 # ─── Kivy config BEFORE import ───────────────────────────────────────────────
 os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
@@ -55,10 +56,14 @@ import RNS
 import RNS.vendor.umsgpack as umsgpack
 
 # ─── Font Configuration ───────────────────────────────────────────────────────
-FONT_PATH = None
+FONT_PATH = ""
+ICON_FONT_PATH = ""
+EMOJI_FONT_PATH = ""
 
-def _init_font():
-    global FONT_PATH
+def _init_fonts():
+    global FONT_PATH, ICON_FONT_PATH, EMOJI_FONT_PATH
+    
+    # Try to find main UI font
     for base in [
         os.path.dirname(os.path.abspath(__file__)),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
@@ -66,12 +71,42 @@ def _init_font():
         fp = os.path.join(base, "ShureTechMonoNerdFontMono-Regular.ttf")
         if os.path.exists(fp):
             FONT_PATH = fp
-            log(f"Using bundled font: {FONT_PATH}")
-            return
-    FONT_PATH = ""
-    log("Using system default font")
+            log(f"Using main font: {FONT_PATH}")
+            break
+    
+    # Try to find icon font
+    for base in [
+        os.path.dirname(os.path.abspath(__file__)),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
+    ]:
+        fp = os.path.join(base, "MaterialIcons-Regular.ttf")
+        if os.path.exists(fp):
+            ICON_FONT_PATH = fp
+            log(f"Using icon font: {ICON_FONT_PATH}")
+            break
 
-_init_font()
+    # Try to find emoji font
+    for base in [
+        os.path.dirname(os.path.abspath(__file__)),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
+    ]:
+        fp = os.path.join(base, "Twemoji.Mozilla.ttf")
+        if os.path.exists(fp):
+            EMOJI_FONT_PATH = fp
+            log(f"Using emoji font: {EMOJI_FONT_PATH}")
+            break
+
+_init_fonts()
+
+def wrap_emojis(text):
+    if not EMOJI_FONT_PATH:
+        return text
+    # Improved regex for most emojis including clusters (ZWJ, variation selectors).
+    emoji_pattern = re.compile(
+        r"([\U0001f000-\U0001faff\U00002600-\U000027bf\U00002300-\U000023ff\U00002b00-\U00002bff\u200d\ufe0f]+)"
+    )
+    # Kivy markup for changing font. Note: font_name must be the full path if not in kivy's search path.
+    return emoji_pattern.sub(f"[font={EMOJI_FONT_PATH}]\\1[/font]", text)
 
 # ─── Configuration Manager ────────────────────────────────────────────────────
 
@@ -84,7 +119,9 @@ class ConfigManager:
             "node_name": "RetiBrowser Client",
             "default_node": "c95cce570afd2fa1545fa86c07256fdc",
             "hubs": [
-                {"host": "rns.chicagonomad.net", "port": 4242, "enabled": True}
+                {"host": "rns.chicagonomad.net", "port": 4242, "enabled": True},
+                {"name": "SPAGOnet", "type": "BackboneInterface", "host": "rns.pawgslayers.club", "port": 4242, "enabled": True},
+                {"name": "MichMesh", "type": "BackboneInterface", "host": "rns.michmesh.net", "port": 7822, "enabled": True}
             ]
         }
         self.load()
@@ -700,9 +737,15 @@ class ReticulumClient:
         interfaces_config = ""
         for i, hub in enumerate(self.config_manager.config["hubs"]):
             if hub.get("enabled", True):
+                iface_type = hub.get("type", "TCPClientInterface")
+                iface_name = hub.get("name", f"Community Hub {i}")
+                
+                # BackboneInterface and TCPClientInterface both usually use target_host/port
+                # But the user specifies BackboneInterface with target_port.
+                
                 interfaces_config += f"""
-  [[Community Hub {i}]]
-    type        = TCPClientInterface
+  [[{iface_name}]]
+    type        = {iface_type}
     enabled     = yes
     target_host = {hub['host']}
     target_port = {hub['port']}
@@ -998,7 +1041,7 @@ class IconButton(Button):
         kwargs.setdefault("size_hint_x", None)
         kwargs.setdefault("width", dp(52))
         kwargs.setdefault("bold", False)
-        kwargs.setdefault("font_name", FONT_PATH)
+        kwargs.setdefault("font_name", ICON_FONT_PATH)
         kwargs.setdefault("halign", "center")
         kwargs.setdefault("valign", "middle")
         super().__init__(**kwargs)
@@ -1013,10 +1056,10 @@ class AddressBar(BoxLayout):
             Color(*NAV_COLOR)
             self._bg = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._upd, size=self._upd)
-        self.back_btn    = IconButton(text="←", width=dp(44))
-        self.fwd_btn     = IconButton(text="→", width=dp(44))
-        self.refresh_btn = IconButton(text="⟳", width=dp(44))
-        self.go_btn      = IconButton(text="➜", width=dp(44))
+        self.back_btn    = IconButton(text="\ue5c4", width=dp(44))
+        self.fwd_btn     = IconButton(text="\ue5c8", width=dp(44))
+        self.refresh_btn = IconButton(text="\ue5d5", width=dp(44))
+        self.go_btn      = IconButton(text="\ue5c8", width=dp(44))
         self.address = TextInput(
             text="", multiline=False, font_size=sp(14),
             background_color=(0.12,0.15,0.20,1),
@@ -1041,6 +1084,8 @@ class AddressBar(BoxLayout):
 
 class StatusBar(Label):
     def __init__(self, **kwargs):
+        kwargs.setdefault("markup", True)
+        kwargs.setdefault("font_name", FONT_PATH)
         super().__init__(size_hint_y=None, height=dp(24), font_size=sp(11),
                          halign="left", color=(0.6,0.6,0.6,1),
                          text_size=(Window.width, None), **kwargs)
@@ -1057,12 +1102,15 @@ class StatusBar(Label):
 
 class LinkButton(Button):
     def __init__(self, label, path, node, on_tap, **kwargs):
+        safe_label = label.replace("[", "[[").replace("]", "]]")
         super().__init__(
-            text=f"  ▸ {label}",
+            text=f"  ▸ {wrap_emojis(safe_label)}",
+            markup=True,
             background_normal="", background_down="",
             background_color=(0,0,0,0), color=LNK_COLOR,
             halign="left", valign="middle",
-            size_hint_y=None, height=dp(34), font_size=sp(14), **kwargs)
+            size_hint_y=None, height=dp(34), font_size=sp(14),
+            font_name=FONT_PATH, **kwargs)
         self.path, self.node, self.on_tap = path, node, on_tap
         self.text_size = (None, None)
         self.bind(size=lambda *_: setattr(self, "text_size", (self.width, None)))
@@ -1098,7 +1146,7 @@ class NodeDrawer(BoxLayout):
                     font_size=sp(18), bold=True)
         ttl.bind(size=lambda i,v: setattr(i,"text_size",i.size))
         hdr.add_widget(ttl)
-        close = IconButton(text="×", width=dp(44))
+        close = IconButton(text="\ue5cd", width=dp(44))
         close.bind(on_press=self._close)
         hdr.add_widget(close)
         self.add_widget(hdr)
@@ -1145,22 +1193,27 @@ class NodeDrawer(BoxLayout):
 
         info = BoxLayout(orientation="vertical")
         name_row = BoxLayout(orientation="horizontal", spacing=dp(4))
-        name_lbl = Label(text=node_info.get("name","?"), halign="left", valign="middle",
+        
+        node_name = node_info.get("name","?")
+        safe_name = node_name.replace("[", "[[").replace("]", "]]")
+        name_lbl = Label(text=wrap_emojis(safe_name), halign="left", valign="middle",
                          font_size=sp(14), bold=True, color=FG_COLOR, font_name=FONT_PATH,
-                         size_hint_x=None)
+                         size_hint_x=None, markup=True)
         name_lbl.bind(texture_size=lambda i,v: setattr(i,"width",v[0]))
         name_row.add_widget(name_lbl)
         
         # Indicators
         caps = node_info.get("capabilities", [])
         if "pages" in caps or "micron" in caps:
-            p_ind = Label(text="\uf0ac", font_size=sp(12), color=(0.2, 0.8, 1, 1),
-                          size_hint=(None, None), size=(dp(20), dp(20)), font_name=FONT_PATH)
+            # Material Icon: public (globe) \ue894
+            p_ind = Label(text="\ue894", font_size=sp(14), color=(0.2, 0.8, 1, 1),
+                          size_hint=(None, None), size=(dp(20), dp(20)), font_name=ICON_FONT_PATH)
             name_row.add_widget(p_ind)
             
         if node_info.get("is_lxmf") or "lxmf" in caps:
-            l_ind = Label(text="\uf0e0", font_size=sp(12), color=(0.2, 1, 0.2, 1),
-                          size_hint=(None, None), size=(dp(20), dp(20)), font_name=FONT_PATH)
+            # Material Icon: mail \ue159
+            l_ind = Label(text="\ue159", font_size=sp(14), color=(0.2, 1, 0.2, 1),
+                          size_hint=(None, None), size=(dp(20), dp(20)), font_name=ICON_FONT_PATH)
             name_row.add_widget(l_ind)
             
         info.add_widget(name_row)
@@ -1170,9 +1223,10 @@ class NodeDrawer(BoxLayout):
         hash_lbl.bind(size=lambda i,v: setattr(i,"text_size",i.size))
         info.add_widget(hash_lbl)
 
-        nav = Button(text="Go →", size_hint_x=None, width=dp(60),
+        nav = Button(text="Go \uf061", size_hint_x=None, width=dp(60),
                      background_normal="", background_down="",
-                     background_color=BTN_COLOR, color=LNK_COLOR, font_size=sp(12))
+                     background_color=BTN_COLOR, color=LNK_COLOR, font_size=sp(12),
+                     font_name=FONT_PATH)
         nav.bind(on_press=lambda i, h=nh: self._navigate(h))
         card.add_widget(info)
         card.add_widget(nav)
@@ -1271,6 +1325,7 @@ class PageView(ScrollView):
         self._touches = []
         self._last_dist = 0
         self.current_elements = []
+        self._render_ev = None
 
     def _upd(self, *_):
         self._bg.pos = self.pos
@@ -1278,7 +1333,8 @@ class PageView(ScrollView):
 
     def on_touch_down(self, touch):
         if self.collide_point(*touch.pos):
-            self._touches.append(touch)
+            if touch not in self._touches:
+                self._touches.append(touch)
             if len(self._touches) == 2:
                 self._last_dist = Vector(self._touches[0].pos).distance(self._touches[1].pos)
                 return True # Consume for pinch
@@ -1293,7 +1349,11 @@ class PageView(ScrollView):
                 # Clamp zoom between 0.5x and 3.0x
                 if 0.5 <= new_zoom <= 3.0:
                     self.zoom_factor = new_zoom
-                    self.show_elements(self.current_elements, reset_scroll=False)
+                    # Debounce rendering
+                    if self._render_ev:
+                        self._render_ev.cancel()
+                    self._render_ev = Clock.schedule_once(
+                        lambda dt: self.show_elements(self.current_elements, reset_scroll=False), 0.05)
             self._last_dist = dist
             return True
         return super().on_touch_move(touch)
@@ -1352,6 +1412,7 @@ class PageView(ScrollView):
                 for seg in segments:
                     txt = (seg["text"].replace("&","&amp;")
                                      .replace("[","[[").replace("]","]]"))
+                    txt = wrap_emojis(txt)
                     r,g,b,a = seg["fg"]
                     col = "#{:02x}{:02x}{:02x}".format(int(r*255),int(g*255),int(b*255))
                     p = f"[color={col}]"
@@ -1371,7 +1432,7 @@ class PageView(ScrollView):
                 fs = fs_map.get(heading, sp(14)) * zf
                 lbl = Label(text="".join(markup_parts), markup=True,
                             font_size=fs, halign=align, valign="top",
-                            size_hint_y=None, color=FG_COLOR)
+                            size_hint_y=None, color=FG_COLOR, font_name=FONT_PATH)
                 lbl.bind(
                     width=lambda i,w: setattr(i,"text_size",(w,None)),
                     texture_size=lambda i,ts: setattr(i,"height",ts[1]+dp(2)))
@@ -1389,6 +1450,7 @@ class PageView(ScrollView):
 
             elif t == "literal":
                 safe = el.get("content","").replace("[","[[").replace("]","]]")
+                safe = wrap_emojis(safe)
                 lbl = Label(text=safe, markup=True, font_size=sp(12)*zf,
                             halign="left", valign="top", size_hint_y=None,
                             color=(0.7,0.7,0.7,1), font_name=FONT_PATH)
@@ -1566,7 +1628,7 @@ class RetiBrowserApp(App):
             self._addrbar.refresh_btn.bind(on_press=self._refresh)
 
             # Menu Button with Dropdown
-            self._menu_btn = IconButton(text="≡", width=dp(44))
+            self._menu_btn = IconButton(text="\ue5d2", width=dp(44))
             self._dropdown = DropDown(auto_width=False, width=dp(180))
             
             btn_discovered = Button(text="Discovered Nodes", size_hint_y=None, height=dp(44), 
@@ -1796,7 +1858,8 @@ class RetiBrowserApp(App):
 
     @mainthread
     def _set_status(self, msg):
-        self._statusbar.text = f"  {msg}"
+        safe_msg = msg.replace("[", "[[").replace("]", "]]")
+        self._statusbar.text = f"  {wrap_emojis(safe_msg)}"
 
     def on_stop(self):
         try:
