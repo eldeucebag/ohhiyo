@@ -64,21 +64,25 @@ def _init_fonts():
     global FONT_PATH, ICON_FONT_PATH, EMOJI_FONT_PATH
     
     # Try to find main UI font
-    for base in [
+    bases = [
         os.path.dirname(os.path.abspath(__file__)),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
-    ]:
-        fp = os.path.join(base, "ShureTechMonoNerdFontMono-Regular.ttf")
-        if os.path.exists(fp):
-            FONT_PATH = fp
-            log(f"Using main font: {FONT_PATH}")
-            break
+        os.getcwd(),
+        os.path.join(os.getcwd(), "files"),
+    ]
+    
+    # Search for main font: JetBrains Mono or ShureTech
+    for base in bases:
+        for font_name in ["JetBrainsMonoNerdFont.ttf", "ShureTechMonoNerdFontMono-Regular.ttf"]:
+            fp = os.path.join(base, font_name)
+            if os.path.exists(fp):
+                FONT_PATH = fp
+                log(f"Using main font: {FONT_PATH}")
+                break
+        if FONT_PATH: break
     
     # Try to find icon font
-    for base in [
-        os.path.dirname(os.path.abspath(__file__)),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
-    ]:
+    for base in bases:
         fp = os.path.join(base, "MaterialIcons-Regular.ttf")
         if os.path.exists(fp):
             ICON_FONT_PATH = fp
@@ -86,10 +90,7 @@ def _init_fonts():
             break
 
     # Try to find emoji font
-    for base in [
-        os.path.dirname(os.path.abspath(__file__)),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "files"),
-    ]:
+    for base in bases:
         fp = os.path.join(base, "Twemoji.Mozilla.ttf")
         if os.path.exists(fp):
             EMOJI_FONT_PATH = fp
