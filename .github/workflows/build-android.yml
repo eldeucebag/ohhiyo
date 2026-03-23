@@ -3,9 +3,16 @@ name: Build Android APK
 on:
   push:
     branches: [main]
+    tags:
+      - 'v*'
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g., v1.0.0-alpha)'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -87,19 +94,15 @@ jobs:
       - name: Setup Buildozer NDK directory
         run: |
           mkdir -p ~/.buildozer/android/platform
-          # Symlink only the NDK to prevent buildozer from downloading it
           ln -sf $ANDROID_SDK_ROOT/ndk/25.2.9519653 ~/.buildozer/android/platform/android-ndk-r25b
           ln -sf $ANDROID_SDK_ROOT/ndk/25.2.9519653 ~/.buildozer/android/platform/android-ndk-r25.2.9519653
-          # Copy accepted licenses to buildozer's future SDK location
           mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
           cp -r $ANDROID_SDK_ROOT/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
-          # Create tools directory structure that buildozer/p4a expects
           mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/apkanalyzer ~/.buildozer/android/platform/android-sdk/tools/bin/apkanalyzer
           ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/lint ~/.buildozer/android/platform/android-sdk/tools/bin/lint
-          # Also create platform-tools symlink (NOT build-tools - let buildozer install it)
           ln -sf $ANDROID_SDK_ROOT/platform-tools ~/.buildozer/android/platform/android-sdk/platform-tools
 
       - name: Build APK with Buildozer
@@ -110,7 +113,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: retibrowser-apk
+          name: ohhiyo-apk
           path: bin/*.apk
           if-no-files-found: error
 
@@ -121,3 +124,27 @@ jobs:
           name: buildozer-log
           path: buildozer.log
           if-no-files-found: ignore
+
+      # Create GitHub Release for tag pushes
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bin/*.apk
+          generate_release_notes: true
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Create GitHub Release for manual workflow dispatch with tag
+      - name: Create Release (manual)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: ${{ github.event.inputs.release_tag }}
+          files: bin/*.apk
+          generate_release_notes: true
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
