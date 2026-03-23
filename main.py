@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ F
-RetiBrowser - A Kivy-based Reticulum NomadNet Micron Browser
+ohhiyo - A Kivy-based Reticulum NomadNet Micron Browser
 Connects to a community hub and renders Micron markup pages.
 
 Requirements:
@@ -27,10 +27,10 @@ try:
     import android
     from android.runnable import run_on_ui_thread
     def log(msg):
-        print(f"[RetiBrowser] {msg}")
+        print(f"[ohhiyo] {msg}")
 except ImportError:
     def log(msg):
-        print(f"[RetiBrowser] {msg}")
+        print(f"[ohhiyo] {msg}")
 
 from kivy.app import App
 from kivy.clock import Clock, mainthread
@@ -81,6 +81,11 @@ def _init_fonts():
                 break
         if FONT_PATH: break
     
+    # Fallback to system font if still not found (though unlikely on Android with files included)
+    if not FONT_PATH:
+        FONT_PATH = "Roboto"
+        log("Warning: No bundled main font found, falling back to Roboto")
+
     # Try to find icon font
     for base in bases:
         fp = os.path.join(base, "MaterialIcons-Regular.ttf")
@@ -88,6 +93,9 @@ def _init_fonts():
             ICON_FONT_PATH = fp
             log(f"Using icon font: {ICON_FONT_PATH}")
             break
+    if not ICON_FONT_PATH:
+        ICON_FONT_PATH = FONT_PATH
+        log(f"Warning: Icon font not found, falling back to {FONT_PATH}")
 
     # Try to find emoji font
     for base in bases:
@@ -96,6 +104,9 @@ def _init_fonts():
             EMOJI_FONT_PATH = fp
             log(f"Using emoji font: {EMOJI_FONT_PATH}")
             break
+    if not EMOJI_FONT_PATH:
+        EMOJI_FONT_PATH = FONT_PATH
+        log(f"Warning: Emoji font not found, falling back to {FONT_PATH}")
 
 _init_fonts()
 
@@ -114,10 +125,10 @@ def wrap_emojis(text):
 class ConfigManager:
     def __init__(self, config_dir):
         self.config_dir = config_dir
-        self.config_file = os.path.join(config_dir, "retibrowser_config.json")
+        self.config_file = os.path.join(config_dir, "ohhiyo_config.json")
         self.cache_file = os.path.join(config_dir, "node_cache.json")
         self.config = {
-            "node_name": "RetiBrowser Client",
+            "node_name": "ohhiyo Client",
             "default_node": "c95cce570afd2fa1545fa86c07256fdc",
             "hubs": [
                 {"host": "rns.chicagonomad.net", "port": 4242, "enabled": True},
@@ -546,9 +557,13 @@ class AnnounceHandler:
     def _load_cache(self):
         cache = self.config_manager.load_node_cache()
         for node_hash, data in cache.items():
-            self._announced_nodes[node_hash] = data["info"]
+            info = data.get("info", {})
+            name = info.get("name", "")
+            if re.match(r"^Node [0-9a-fA-F]+$", name):
+                continue
+            self._announced_nodes[node_hash] = info
             dest_hash = bytes.fromhex(node_hash)
-            self._node_names[dest_hash] = tuple(data["names"])
+            self._node_names[dest_hash] = tuple(data.get("names", []))
             
             # Reconstruct identity from public key
             if "pub_key" in data:
@@ -598,7 +613,7 @@ class AnnounceHandler:
                 is_nomadnet = True
                 matched_names = ("nomadnet", "node")
         except Exception as e:
-            RNS.log(f"RetiBrowser: Error identifying NomadNet node: {e}", RNS.LOG_DEBUG)
+            RNS.log(f"ohhiyo: Error identifying NomadNet node: {e}", RNS.LOG_DEBUG)
 
         # Fallback: some older nodes might announce differently, or RNS versions might vary.
         # If app_data looks like NomadNet data, we can also consider it.
@@ -664,6 +679,11 @@ class AnnounceHandler:
                     info.get("display_name") or info.get("hostname") or
                     f"Node {node_hash[:8]}")
 
+            # Ignore nodes named "Node [hex_hash]", as these are usually not NomadNet page nodes.
+            if re.match(r"^Node [0-9a-fA-F]+$", name):
+                log(f"Ignoring node with hash-based name: {name}")
+                return
+
             caps = info.get("capabilities", [])
             # LXMF detection
             is_lxmf = "lxmf" in caps
@@ -697,7 +717,7 @@ class AnnounceHandler:
                 Clock.schedule_once(
                     lambda dt, nr=node_record: self.on_announce_callback(nr), 0)
         except Exception as e:
-            RNS.log(f"RetiBrowser: announce handler error: {e}", RNS.LOG_ERROR)
+            RNS.log(f"ohhiyo: announce handler error: {e}", RNS.LOG_ERROR)
 
     def get_announced_nodes(self):
         return list(self._announced_nodes.values())
@@ -731,7 +751,7 @@ class ReticulumClient:
         except Exception:
             config_root = os.path.expanduser("~")
 
-        config_path = os.path.join(config_root, ".reticulum_retibrowser")
+        config_path = os.path.join(config_root, ".reticulum_ohhiyo")
         os.makedirs(config_path, exist_ok=True)
 
         # Build interfaces section from config_manager
@@ -777,7 +797,7 @@ class ReticulumClient:
 
         # Register handler BEFORE any announces could arrive
         RNS.Transport.register_announce_handler(self.announce_handler)
-        RNS.log("RetiBrowser: Reticulum started", RNS.LOG_NOTICE)
+        RNS.log("ohhiyo: Reticulum started", RNS.LOG_NOTICE)
 
     def stop(self):
         if self.rns:
@@ -1314,7 +1334,7 @@ class PageView(ScrollView):
                          **kwargs)
         self.on_link_tap = on_link_tap
         self.container = BoxLayout(orientation="vertical", size_hint_y=None,
-                                   spacing=dp(2), padding=[dp(12), dp(8)])
+                                   spacing=0, padding=[dp(12), dp(8)])
         self.container.bind(minimum_height=self.container.setter("height"))
         self.add_widget(self.container)
         with self.canvas.before:
@@ -1593,8 +1613,8 @@ class ConfigPopup(ModalView):
 
 # ─── Main App ─────────────────────────────────────────────────────────────────
 
-class RetiBrowserApp(App):
-    title = "RetiBrowser – Reticulum Micron Browser"
+class ohhiyoApp(App):
+    title = "ohhiyo – Reticulum Micron Browser"
 
     def build(self):
         log("build() starting…")
@@ -1607,7 +1627,7 @@ class RetiBrowserApp(App):
                 config_root = self.user_data_dir if (self and self.user_data_dir) else os.path.expanduser("~")
             except Exception:
                 config_root = os.path.expanduser("~")
-            config_path = os.path.join(config_root, ".reticulum_retibrowser")
+            config_path = os.path.join(config_root, ".reticulum_ohhiyo")
             os.makedirs(config_path, exist_ok=True)
             
             self._config_manager = ConfigManager(config_path)
@@ -1875,4 +1895,4 @@ class RetiBrowserApp(App):
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    RetiBrowserApp().run()
+    ohhiyoApp().run()

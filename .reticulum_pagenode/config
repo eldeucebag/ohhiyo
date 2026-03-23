@@ -1,0 +1,3 @@
+[reticulum]
+  enable_transport = No
+  share_instance   = Yes

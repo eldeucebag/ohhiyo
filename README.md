@@ -2,7 +2,7 @@
 
 A Kivy-based Reticulum NomadNet Micron Browser for Android devices.
 
-Connects to RNS Page Nodes via the **Noderage Community Hub** (`rns.noderage.org:4242`).
+Connects to RNS Page Nodes via a **Community Hub** (`rns.chicagonomad.net:4242` by default).
 
 ## Requirements
 
@@ -26,28 +26,25 @@ buildozer android debug
 
 ## Configuration
 
-The app connects to the Noderage Community Hub by default. Edit `main.py` if needed:
+The app connects to `rns.chicagonomad.net:4242` by default. You can add more hubs or change the default one in the **Config** menu within the app.
 
-```python
-# Noderage Community Hub - public Reticulum transport relay
-NODERAGE_HOST = "rns.noderage.org"
-NODERAGE_PORT = 4242
-```
+You can also set your **Node Name** in the configuration window.
 
 ## Usage
 
-1. Ensure your RNS Page Node server is running and connected to Noderage
-2. Open the RetiBrowser app on your Android device
-3. The app automatically connects to `rns.noderage.org:4242` and sends an announce
-4. Wait for the server's announce to propagate (usually a few seconds)
-5. Enter the destination hash to browse pages:
+1. Open the RetiBrowser app on your Android device
+2. The app connects to the configured hubs and listens for announces
+3. Wait for the server's announce to propagate (usually a few seconds)
+4. Enter the destination hash to browse pages:
    ```
    <f97f412b9ef6d1c2330ca5ee28ee9e31>
    ```
 
 ## Navigation
 
-- **Menu button (☰)**: Open node discovery drawer
+- **Menu button (≡)**: Opens a dropdown menu with:
+  - **Discovered Nodes**: Shows the node discovery drawer
+  - **Config**: Opens the configuration window
 - **Back/Forward**: Navigate browsing history
 - **Refresh**: Reload current page
 - **Address bar**: Enter destination hash or full URL
@@ -56,29 +53,24 @@ NODERAGE_PORT = 4242
 
 ## Node Discovery
 
-**Swipe right from the left edge** or tap the **☰ menu button** to open the node discovery drawer.
+Select **Discovered Nodes** from the menu or **swipe right from the left edge** to open the node discovery drawer.
 
 The drawer shows:
 - All nodes that have sent announces on the network
 - Node names and destination hashes
-- Quick "Navigate" buttons to browse each node
-
-The app automatically:
-- Sends an announce when connecting to the hub
-- Listens for announces from other nodes
-- Maintains a list of discovered nodes
+- Quick "Go →" buttons to browse each node
 
 ## Architecture
 
 ```
 ┌──────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  RetiBrowser │────▶│  Noderage Hub    │◀────│  Page Node  │
-│  (Android)   │     │  rns.noderage.org│     │  (server)   │
+│  RetiBrowser │────▶│  Community Hub   │◀────│  Page Node  │
+│  (Android)   │     │ (TCP Interface)  │     │  (server)   │
 └──────────────┘     └──────────────────┘     └─────────────┘
    TCP client            Public relay          TCP client
 ```
 
-Both the browser and page node connect outbound to the Noderage hub, avoiding NAT/firewall issues.
+Both the browser and page node connect outbound to the hub, avoiding NAT/firewall issues.
 
 ## Micron Markup
 
@@ -124,7 +116,7 @@ The browser fully implements Reticulum's Micron markup language with support for
 
 **"Path not found" error:**
 - Ensure both your server and phone are connected to the internet
-- Check that your server is connected to Noderage (check server logs)
+- Check that your server is connected to the same hub as your phone
 - Wait for the server's announce to propagate (can take up to 30 minutes)
 - Verify the destination hash is correct
 
@@ -135,7 +127,7 @@ The browser fully implements Reticulum's Micron markup language with support for
 
 **Connection timeout:**
 - Check your internet connection
-- Verify Noderage hub is reachable: `telnet rns.noderage.org 4242`
+- Verify the community hub is reachable
 
 ## License
 
