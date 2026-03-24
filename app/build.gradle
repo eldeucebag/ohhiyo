@@ -20,7 +20,6 @@ android {
             pip {
                 install "kivy==2.2.1"
                 install "rns>=0.6.0"
-                install "cryptography>=41.0.0"
                 install "pyserial"
                 install "pyopenssl"
                 install "urllib3>=2.0.0"
