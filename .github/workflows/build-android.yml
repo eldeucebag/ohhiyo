@@ -28,10 +28,18 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Gradle 7.6
+        run: |
+          mkdir -p $HOME/.gradle/wrapper/dists/gradle-7.6-bin
+          cd $HOME/.gradle/wrapper/dists/gradle-7.6-bin
+          curl -L https://services.gradle.org/distributions/gradle-7.6-bin.zip -o gradle-7.6-bin.zip
+          unzip -q gradle-7.6-bin.zip
+          echo "$HOME/.gradle/wrapper/dists/gradle-7.6-bin/gradle-7.6/bin" >> $GITHUB_PATH
+
       - name: Build APK with Chaquo
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          cd /home/runner/work/ohhiyo/ohhiyo
+          gradle assembleDebug --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
