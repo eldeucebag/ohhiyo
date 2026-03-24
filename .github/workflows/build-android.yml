@@ -63,6 +63,16 @@ jobs:
             python3-setuptools \
             python3-pip
 
+      - name: Fix SDK Layout
+        run: |
+          sudo mkdir -p /usr/local/lib/android/sdk/tools/bin
+          # GitHub runners put cmdline-tools in cmdline-tools/latest/bin/
+          # but Buildozer looks in tools/bin/
+          if [ -f "/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
+            sudo ln -s /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /usr/local/lib/android/sdk/tools/bin/sdkmanager
+            sudo ln -s /usr/local/lib/android/sdk/cmdline-tools/latest/bin/avdmanager /usr/local/lib/android/sdk/tools/bin/avdmanager
+          fi
+
       - name: Install buildozer
         run: |
           pip install --upgrade pip
