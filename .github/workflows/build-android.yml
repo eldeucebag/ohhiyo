@@ -83,6 +83,8 @@ jobs:
 
       - name: Build with Buildozer
         run: |
+          # Remove any stray settings.gradle that may have been created in repo root
+          rm -f settings.gradle
           buildozer android debug
         env:
           ACCEPT_SDK_LICENSE: "True"
