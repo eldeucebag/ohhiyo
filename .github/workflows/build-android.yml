@@ -60,6 +60,7 @@ jobs:
             libsqlite3-dev \
             libbz2-dev \
             gettext \
+            autopoint \
             openjdk-17-jdk \
             python3-setuptools \
             python3-pip
