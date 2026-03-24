@@ -56,6 +56,9 @@ jobs:
             cmake \
             unzip \
             zip \
+            libunwind-dev \
+            libsqlite3-dev \
+            libbz2-dev \
             openjdk-17-jdk \
             python3-setuptools \
             python3-pip
