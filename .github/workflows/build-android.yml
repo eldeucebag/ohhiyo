@@ -22,37 +22,68 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          python-version: '3.10'
 
-      - name: Setup Gradle 7.6
+      - name: Install system dependencies
         run: |
-          mkdir -p $HOME/.gradle/wrapper/dists/gradle-7.6-bin
-          cd $HOME/.gradle/wrapper/dists/gradle-7.6-bin
-          curl -L https://services.gradle.org/distributions/gradle-7.6-bin.zip -o gradle-7.6-bin.zip
-          unzip -q gradle-7.6-bin.zip
-          echo "$HOME/.gradle/wrapper/dists/gradle-7.6-bin/gradle-7.6/bin" >> $GITHUB_PATH
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            python3-dev \
+            ffmpeg \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libsdl2-mixer-dev \
+            libsdl2-ttf-dev \
+            libportmidi-dev \
+            libswscale-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            zlib1g-dev \
+            libgstreamer1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            libffi-dev \
+            libssl-dev \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            cmake \
+            unzip \
+            zip \
+            openjdk-17-jdk \
+            python3-setuptools \
+            python3-pip
 
-      - name: Build APK with Chaquo
+      - name: Install buildozer
         run: |
-          cd /home/runner/work/ohhiyo/ohhiyo
-          gradle assembleDebug --no-daemon
+          pip install --upgrade pip
+          pip install buildozer
+          pip install Cython==0.29.33
+
+      - name: Build with Buildozer
+        run: |
+          buildozer android debug
+        env:
+          ACCEPT_SDK_LICENSE: "True"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ohhiyo-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: bin/*.apk
           if-no-files-found: error
 
       - name: Create Release (tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/debug/*.apk
+          files: bin/*.apk
           generate_release_notes: true
           prerelease: true
         env:
@@ -64,7 +95,7 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
-          files: app/build/outputs/apk/debug/*.apk
+          files: bin/*.apk
           generate_release_notes: true
           prerelease: true
         env:
