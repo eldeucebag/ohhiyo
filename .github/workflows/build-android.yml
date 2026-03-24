@@ -63,6 +63,12 @@ jobs:
             python3-setuptools \
             python3-pip
 
+      - name: Debug Environment
+        run: |
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+          ls -d /usr/local/lib/android/sdk/ndk/* || echo "No NDK found in default path"
+
       - name: Install buildozer
         run: |
           pip install --upgrade pip
