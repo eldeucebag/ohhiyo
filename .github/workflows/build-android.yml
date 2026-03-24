@@ -85,6 +85,8 @@ jobs:
         run: |
           # Remove any stray settings.gradle that may have been created in repo root
           rm -f settings.gradle
+          # Set JAVA_HOME to Java 17 (required by Android Gradle Plugin)
+          export JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64
           buildozer android debug
         env:
           ACCEPT_SDK_LICENSE: "True"
