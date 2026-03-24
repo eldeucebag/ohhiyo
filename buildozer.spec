@@ -24,9 +24,12 @@ android.manifest.application_attributes = android:usesCleartextTraffic="true"
 
 android.api = 33
 android.minapi = 21
-android.ndk = 25.2.9519653
+android.ndk = 27.3.13750724
 android.sdk = 33
 android.accept_sdk_license = True
+
+android.sdk_path = /usr/local/lib/android/sdk
+android.ndk_path = /usr/local/lib/android/sdk/ndk/27.3.13750724
 
 android.archs = arm64-v8a, armeabi-v7a
 
