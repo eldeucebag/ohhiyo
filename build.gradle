@@ -7,6 +7,6 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:7.4.2'
-        classpath 'com.chaquo.python:gradle:14.0.2'
+        classpath 'com.chaquo.python:gradle:13.0.0'
     }
 }
