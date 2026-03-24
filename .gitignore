@@ -42,3 +42,9 @@ Thumbs.db
 
 # Reticulum config
 ~/.reticulum_*
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+app/src/main/python/__pycache__/

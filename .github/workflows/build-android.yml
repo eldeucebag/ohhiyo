@@ -22,128 +22,44 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install "Cython<3.0" requests appdirs packaging toml
-          pip install git+https://github.com/kivy/buildozer.git
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            autoconf \
-            automake \
-            autopoint \
-            build-essential \
-            ccache \
-            cmake \
-            git \
-            libffi-dev \
-            libssl-dev \
-            libtinfo-dev \
-            libtool \
-            libncurses5-dev \
-            libncursesw5-dev \
-            openjdk-17-jdk \
-            pkg-config \
-            python3-dev \
-            python3-pip \
-            scons \
-            unzip \
-            wget \
-            zlib1g-dev \
-            libbz2-dev \
-            liblzma-dev \
-            libsqlite3-dev \
-            libreadline-dev \
-            uuid-dev \
-            librust-openssl-dev
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: true
-        env:
-          SKIP_JDK_VERSION_CHECK: true
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
 
-      - name: Install Android SDK components
+      - name: Build APK with Chaquo
         run: |
-          yes | sdkmanager --install "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
-          yes | sdkmanager --licenses
-
-      - name: Set Android environment variables
-        run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
-          echo "ANDROID_SDK_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "PATH=$PATH:$ANDROID_SDK_ROOT/tools:$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_ENV
-          echo "SKIP_JDK_VERSION_CHECK=true" >> $GITHUB_ENV
-
-      - name: Setup Buildozer NDK directory
-        run: |
-          mkdir -p ~/.buildozer/android/platform
-          ln -sf $ANDROID_SDK_ROOT/ndk/25.2.9519653 ~/.buildozer/android/platform/android-ndk-r25b
-          ln -sf $ANDROID_SDK_ROOT/ndk/25.2.9519653 ~/.buildozer/android/platform/android-ndk-r25.2.9519653
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          cp -r $ANDROID_SDK_ROOT/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
-          mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
-          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager
-          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/apkanalyzer ~/.buildozer/android/platform/android-sdk/tools/bin/apkanalyzer
-          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/lint ~/.buildozer/android/platform/android-sdk/tools/bin/lint
-          ln -sf $ANDROID_SDK_ROOT/platform-tools ~/.buildozer/android/platform/android-sdk/platform-tools
-
-      - name: Build APK with Buildozer
-        run: |
-          buildozer android debug 2>&1 | tee buildozer.log
-        shell: bash
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ohhiyo-apk
-          path: bin/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Upload build log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: buildozer-log
-          path: buildozer.log
-          if-no-files-found: ignore
-
-      # Create GitHub Release for tag pushes
-      - name: Create Release
+      - name: Create Release (tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: bin/*.apk
+          files: app/build/outputs/apk/debug/*.apk
           generate_release_notes: true
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Create GitHub Release for manual workflow dispatch with tag
-      - name: Create Release (manual)
+      - name: Create Release (manual dispatch)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
-          files: bin/*.apk
+          files: app/build/outputs/apk/debug/*.apk
           generate_release_notes: true
           prerelease: true
         env:

@@ -1,0 +1,62 @@
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
+
+android {
+    namespace 'org.ohhiyo.ohhiyo'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "org.ohhiyo.ohhiyo"
+        minSdk 21
+        targetSdk 33
+        versionCode 1
+        versionName "1.0.0"
+
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
+
+        python {
+            pip {
+                install "kivy==2.2.1"
+                install "rns>=0.6.0"
+                install "cryptography>=41.0.0"
+                install "pyserial"
+                install "pyopenssl"
+                install "urllib3>=2.0.0"
+                install "requests>=2.31.0"
+                install "chardet>=5.0.0"
+                install "idna>=3.4"
+                install "certifi>=2023.0.0"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main {
+            python.srcDirs = ['src/main/python']
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+}
